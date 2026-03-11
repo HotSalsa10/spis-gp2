@@ -61,9 +61,10 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
-# SPIS — generated artifacts (recreated by scripts/ingest_kaggle.py)
+# SPIS — generated artifacts (recreated by scripts/)
 data/*.db
 data/raw/*.csv
+data/processed/*.csv
 
 # Flask stuff:
 instance/

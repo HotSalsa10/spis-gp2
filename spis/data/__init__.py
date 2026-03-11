@@ -1,1 +1,1 @@
-# spis.data — drug catalog, mock database, and synthetic sales generator.
+# spis.data — database schema, ETL ingestion, and feature-engineering pipeline.
