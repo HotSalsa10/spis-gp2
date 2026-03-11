@@ -65,6 +65,8 @@ db.sqlite3-journal
 data/*.db
 data/raw/*.csv
 data/processed/*.csv
+models/*.joblib
+models/*.json
 
 # Flask stuff:
 instance/

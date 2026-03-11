@@ -7,11 +7,15 @@ and splits into train/test sets for XGBoost forecasting (Phase 3).
 
 Output granularity: daily (one row per ATC code per day).
 
-Features engineered (19 total):
-    Calendar  — day_of_week, day_of_month, month, year, week_of_year, is_weekend
+Features engineered (26 total):
+    Calendar  — day_of_week, day_of_month, month, year, week_of_year,
+                is_weekend, is_holiday, season, is_payday_window,
+                is_school_holiday
     Lags      — lag_1, lag_7, lag_14, lag_28, lag_365
     Rolling   — rolling_mean_7, rolling_std_7, rolling_mean_14, rolling_mean_28,
-                rolling_min_7, rolling_max_7, rolling_mean_90, rolling_mean_365
+                rolling_min_7, rolling_max_7, rolling_mean_90, rolling_mean_365,
+                ema_7
+    Derived   — lag_ratio_7, trend_counter
 
 Usage:
     from spis.data.pipeline import run_pipeline
@@ -21,7 +25,16 @@ Usage:
 import sqlite3
 from pathlib import Path
 
+import holidays
+import numpy as np
 import pandas as pd
+
+# Turkish school holiday periods (approximate, based on MEB calendar).
+# Each tuple is (month_start, day_start, month_end, day_end).
+TURKEY_SCHOOL_HOLIDAYS = [
+    (1, 20, 2, 3),    # Winter / semester break (~2 weeks in late Jan)
+    (6, 15, 9, 15),   # Summer break (~3 months, mid-Jun to mid-Sep)
+]
 
 # The 8 ATC codes present in the Kaggle pharmacy sales dataset.
 EXPECTED_ATC_CODES = {"M01AB", "M01AE", "N02BA", "N02BE", "N05B", "N05C", "R03", "R06"}
@@ -151,25 +164,52 @@ def fill_missing_dates(df: pd.DataFrame) -> pd.DataFrame:
 # Step 4 — Feature engineering
 # ---------------------------------------------------------------------------
 
+def _is_school_holiday(date_series: pd.Series) -> pd.Series:
+    """Return a 0/1 Series indicating Turkish school holiday periods."""
+    month = date_series.dt.month
+    day = date_series.dt.day
+    result = pd.Series(0, index=date_series.index)
+
+    for m_start, d_start, m_end, d_end in TURKEY_SCHOOL_HOLIDAYS:
+        if m_start <= m_end:
+            in_range = (
+                ((month > m_start) | ((month == m_start) & (day >= d_start)))
+                & ((month < m_end) | ((month == m_end) & (day <= d_end)))
+            )
+        else:
+            in_range = (
+                ((month > m_start) | ((month == m_start) & (day >= d_start)))
+                | ((month < m_end) | ((month == m_end) & (day <= d_end)))
+            )
+        result = result | in_range.astype(int)
+
+    return result
+
+
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Add 19 time-series features to each row, computed per ATC code.
+    Add 26 time-series features to each row, computed per ATC code.
 
-    Calendar features (6):
-        day_of_week, day_of_month, month, year, week_of_year, is_weekend
+    Calendar features (10):
+        day_of_week, day_of_month, month, year, week_of_year, is_weekend,
+        is_holiday, season, is_payday_window, is_school_holiday
 
     Lag features (5):
         lag_1, lag_7, lag_14, lag_28, lag_365
 
-    Rolling window features (8):
+    Rolling window features (9):
         rolling_mean_7, rolling_std_7, rolling_mean_14, rolling_mean_28,
-        rolling_min_7, rolling_max_7, rolling_mean_90, rolling_mean_365
+        rolling_min_7, rolling_max_7, rolling_mean_90, rolling_mean_365,
+        ema_7
+
+    Derived features (2):
+        lag_ratio_7, trend_counter
 
     Args:
         df: DataFrame with columns [date, atc_code, quantity].
 
     Returns:
-        DataFrame with all original columns plus 19 new feature columns.
+        DataFrame with all original columns plus 26 new feature columns.
     """
     df = df.sort_values(["atc_code", "date"]).copy()
 
@@ -180,6 +220,27 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df["year"]         = df["date"].dt.year
     df["week_of_year"] = df["date"].dt.isocalendar().week.astype(int)
     df["is_weekend"]   = (df["day_of_week"] >= 5).astype(int)
+
+    # Turkey public holidays (sales data is from a Turkish pharmacy)
+    tr_holidays = holidays.Turkey(years=range(
+        df["date"].dt.year.min(), df["date"].dt.year.max() + 1
+    ))
+    df["is_holiday"]   = df["date"].dt.date.isin(tr_holidays).astype(int)
+
+    # Season: 1=Winter (Dec-Feb), 2=Spring (Mar-May), 3=Summer (Jun-Aug), 4=Fall (Sep-Nov)
+    df["season"] = df["month"].map({
+        12: 1, 1: 1, 2: 1,
+        3: 2, 4: 2, 5: 2,
+        6: 3, 7: 3, 8: 3,
+        9: 4, 10: 4, 11: 4,
+    })
+
+    # Payday window: days 1-3 and 15-17 of each month (Turkish salary cycle)
+    dom = df["day_of_month"]
+    df["is_payday_window"] = (((dom >= 1) & (dom <= 3)) | ((dom >= 15) & (dom <= 17))).astype(int)
+
+    # School holidays (Turkish MEB calendar)
+    df["is_school_holiday"] = _is_school_holiday(df["date"])
 
     # ── Lag and rolling features (per ATC code) ──────────────────────────
     grouped = df.groupby("atc_code")["quantity"]
@@ -198,7 +259,19 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df["rolling_mean_90"]  = grouped.transform(lambda x: x.rolling(90).mean())
     df["rolling_mean_365"] = grouped.transform(lambda x: x.rolling(365).mean())
 
-    print(f"[pipeline] Engineered 19 features -> {len(df.columns)} total columns.")
+    # Exponential moving average (reacts faster to recent demand changes)
+    df["ema_7"] = grouped.transform(lambda x: x.ewm(span=7).mean())
+
+    # ── Derived features ─────────────────────────────────────────────────
+
+    # Lag ratio: how yesterday compares to the weekly average (spike detector)
+    df["lag_ratio_7"] = df["lag_1"] / df["rolling_mean_7"].replace(0, np.nan)
+
+    # Trend counter: days since the start of the dataset (captures long-term trend)
+    date_min = df["date"].min()
+    df["trend_counter"] = (df["date"] - date_min).dt.days
+
+    print(f"[pipeline] Engineered 26 features -> {len(df.columns)} total columns.")
     return df
 
 
@@ -253,7 +326,7 @@ def run_pipeline(db_path: str | Path, output_dir: str | Path) -> None:
         1. Load daily sales from the database
         2. Validate and clean the data
         3. Fill missing dates with zero quantities
-        4. Engineer 19 time-series features
+        4. Engineer 26 time-series features
         5. Split into train/test sets (cutoff: 2019-01-01)
         6. Write CSVs to the output directory
 

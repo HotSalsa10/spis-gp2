@@ -5,6 +5,7 @@ pandas>=2.1
 # ── Machine Learning ──────────────────────────────────────────────────────────
 scikit-learn>=1.4
 xgboost>=2.0
+holidays>=0.40
 
 # ── Medical NLP ───────────────────────────────────────────────────────────────
 spacy>=3.7          # required by scispacy

@@ -1,0 +1,301 @@
+SPIS -- Full Project Summary (Phases 1-3)
+==========================================
+Smart Pharmacy Inventory System
+Graduation Project 2
+Team: Saleh, Nawaf, Mazen, Ali
+Date: March 2026
+
+
+========================================================================
+PHASE 1 -- Project Setup & Data Ingestion
+========================================================================
+
+WHAT WAS DONE
+  Set up the entire project structure, installed all dependencies,
+  downloaded real pharmacy sales data from Kaggle, and loaded it into
+  a local SQLite database.
+
+THE DATA
+  - Source: Kaggle pharmacy sales dataset (from a Turkish pharmacy)
+  - 424,080 sales records spanning Jan 2014 to Oct 2019
+  - 8 drug categories (ATC codes):
+      M01AB  -- Anti-inflammatory (e.g., Diclofenac)
+      M01AE  -- Anti-inflammatory (e.g., Ibuprofen)
+      N02BA  -- Pain relief (e.g., Aspirin)
+      N02BE  -- Pain relief (e.g., Paracetamol)
+      N05B   -- Anxiolytics (e.g., Diazepam)
+      N05C   -- Sleep aids (e.g., Zolpidem)
+      R03    -- Respiratory (e.g., Salbutamol)
+      R06    -- Antihistamines (e.g., Cetirizine)
+  - 57 individual drugs total, 25 flagged as critical
+  - Data comes in 4 granularities: hourly, daily, weekly, monthly
+
+DATABASE (data/inventory.db)
+  3 tables:
+    atc_categories  -- 8 rows (one per drug category)
+    drugs           -- 57 rows (individual drug products)
+    sales           -- 424,080 rows (all sales records)
+
+  This file is git-ignored. To recreate it:
+    python scripts/ingest_kaggle.py
+
+PROJECT STRUCTURE
+  spis/               -- Main Python package
+    data/             -- Data loading, database, pipeline
+    models/           -- ML models (forecaster, risk classifier)
+    api/              -- Flask REST API (Phase 5)
+    dashboard/        -- Streamlit app (Phase 6)
+  tests/              -- Automated test suite
+  scripts/            -- CLI entry points (ingest, pipeline, train)
+  data/raw/           -- Raw CSV files (git-ignored)
+  data/processed/     -- Pipeline output CSVs (git-ignored)
+  models/             -- Trained model files (git-ignored)
+  docs/               -- Documentation and summaries
+  notebooks/          -- Jupyter notebooks for exploration
+
+KEY FILES
+  spis/data/catalog.py     -- Drug catalog with ATC codes and names
+  spis/data/database.py    -- SQLite schema definition and seeding
+  spis/data/generator.py   -- Data generation utilities
+  scripts/ingest_kaggle.py -- Downloads Kaggle data and loads into DB
+
+
+========================================================================
+PHASE 2 -- Data Pipeline & Feature Engineering
+========================================================================
+
+WHAT WAS DONE
+  Built an automated pipeline that takes raw daily sales from the
+  database, fills date gaps, engineers 26 time-series features, and
+  splits the data into train/test sets for the ML model.
+
+PIPELINE STEPS
+  1. Extract daily sales (16,848 rows = 8 ATC codes x 2,106 days)
+  2. Validate (check nulls, negatives, duplicates)
+  3. Fill missing dates with quantity=0
+  4. Engineer 26 features (see below)
+  5. Split into train (before 2019) and test (2019 onwards)
+
+OUTPUT FILES (data/processed/ -- git-ignored)
+  train.csv          -- 14,544 rows (Jan 2014 - Dec 2018)
+  test.csv           -- 2,248 rows (Jan 2019 - Oct 2019)
+  features_daily.csv -- 16,848 rows (full dataset with features)
+
+  To recreate:
+    python scripts/run_pipeline.py
+
+THE 26 ENGINEERED FEATURES
+  All derived from the sales data itself -- nothing external except
+  the Turkey holiday and school calendars.
+
+  Calendar (10):
+    day_of_week        -- Monday=0 through Sunday=6
+    day_of_month       -- 1st through 31st
+    month              -- January=1 through December=12
+    year               -- 2014 through 2019
+    week_of_year       -- Week 1 through 52
+    is_weekend         -- 1 if Saturday/Sunday, else 0
+    is_holiday         -- 1 if Turkish public holiday, else 0
+    season             -- 1=Winter, 2=Spring, 3=Summer, 4=Fall
+    is_payday_window   -- 1 if day 1-3 or 15-17 of the month (Turkish salary cycle)
+    is_school_holiday  -- 1 if during Turkish school break (winter or summer)
+
+  Lags (5) -- "What were the sales X days ago?"
+    lag_1              -- Yesterday's sales
+    lag_7              -- Same day last week
+    lag_14             -- Two weeks ago
+    lag_28             -- Four weeks ago
+    lag_365            -- Same day last year
+
+  Rolling windows (9) -- Averages/stats over recent days:
+    rolling_mean_7     -- Average sales over last 7 days
+    rolling_std_7      -- How much sales varied in last 7 days
+    rolling_mean_14    -- Average over last 14 days
+    rolling_mean_28    -- Average over last 28 days
+    rolling_min_7      -- Lowest day in last week
+    rolling_max_7      -- Highest day in last week
+    rolling_mean_90    -- Average over last 3 months
+    rolling_mean_365   -- Average over last year
+    ema_7              -- Exponential moving average (7-day, reacts faster
+                          to sudden changes than rolling_mean_7)
+
+  Derived (2):
+    lag_ratio_7        -- Yesterday's sales divided by the 7-day average.
+                          A value of 2.0 means "yesterday was double the
+                          usual" — helps detect demand spikes.
+    trend_counter      -- Days since the start of the dataset (0, 1, 2, ...).
+                          Captures long-term growth or decline in sales.
+
+KEY FILES
+  spis/data/pipeline.py    -- All pipeline logic
+  scripts/run_pipeline.py  -- CLI entry point
+  tests/test_pipeline.py   -- 7 tests (all pass)
+
+
+========================================================================
+PHASE 3 -- XGBoost Forecasting Model
+========================================================================
+
+WHAT WAS DONE
+  Trained an XGBoost machine learning model that predicts daily drug
+  sales. Compared it against two simple baselines to prove it actually
+  adds value.
+
+HOW IT WORKS
+  Input:  27 features (the 26 above + drug category encoded as number)
+  Output: Predicted sales quantity for that drug on that day
+
+  The model learns patterns like:
+  - "Sales of painkillers go up on weekdays"
+  - "If last week's average was high, this week will probably be high too"
+  - "Sales dip on Turkish holidays and school breaks"
+  - "Demand spikes around payday (1st and 15th of each month)"
+
+TRAINING PROCESS
+  1. Load train/test CSVs from Phase 2
+  2. Encode drug categories as integers (M01AB=0, M01AE=1, etc.)
+  3. Drop first-year rows where lag_365 has no data (can't look back
+     1 year when you only have a few months)
+  4. Try 512 hyperparameter combinations using GridSearchCV with
+     TimeSeriesSplit (5 folds) to find the best settings
+  5. Evaluate on the held-out 2019 test data
+
+RESULTS
+  Model               MAE       RMSE      MAPE(%)
+  --------------------------------------------------
+  Naive (lag_1)       4.23      7.23      98.42
+  Moving Avg (7d)     2.89      4.98      67.83
+  XGBoost             1.58      2.98      34.22
+
+  MAE  = Average prediction error (lower is better)
+  RMSE = Like MAE but penalizes big misses more
+  MAPE = Average error as a percentage
+
+  The "Naive" baseline just predicts yesterday's sales.
+  The "Moving Avg" baseline predicts the average of the last 7 days.
+  XGBoost cuts the error nearly in HALF compared to baselines.
+
+TOP FEATURES (what the model relies on most)
+  ema_7             0.2673   (exponential moving average -- strongest signal)
+  rolling_mean_7    0.1990   (7-day average)
+  rolling_mean_28   0.1654   (28-day average)
+  is_weekend        0.0421   (weekend effect)
+  rolling_mean_14   0.0417   (14-day average)
+  is_holiday        0.0359   (Turkish holidays matter!)
+  rolling_min_7     0.0300
+  rolling_max_7     0.0269
+  day_of_week       0.0203
+  lag_1             0.0201
+
+BEST HYPERPARAMETERS
+  n_estimators:      500
+  max_depth:         4
+  learning_rate:     0.1
+  subsample:         0.8
+  colsample_bytree:  0.8
+  min_child_weight:  1
+  reg_alpha:         0
+
+SAVED ARTIFACTS (models/ -- git-ignored)
+  xgboost_forecaster.joblib  -- The trained model
+  label_encoder.joblib       -- Drug category name-to-number mapping
+  metrics.json               -- Results table in JSON
+
+  To recreate:
+    python scripts/train_model.py
+
+KEY FILES
+  spis/models/forecaster.py  -- All ML logic
+  scripts/train_model.py     -- CLI entry point
+  tests/test_forecaster.py   -- 8 tests (all pass)
+
+
+========================================================================
+FULL TEST SUITE
+========================================================================
+
+15 tests total, all passing:
+
+  tests/test_pipeline.py (7 tests):
+    - Validates clean data handling
+    - Validates duplicate detection
+    - Tests missing date filling
+    - Tests feature column creation
+    - Tests lag value correctness
+    - Tests train/test split has no data leakage
+    - Tests train/test split has no date overlap
+
+  tests/test_forecaster.py (8 tests):
+    - Tests ATC encoding creates integer column
+    - Tests encoding is consistent between train/test
+    - Tests naive baseline uses lag_1
+    - Tests moving average baseline uses rolling_mean_7
+    - Tests perfect predictions give zero error
+    - Tests known error values are calculated correctly
+    - Tests XGBoost training returns a valid model
+    - Tests save/load roundtrip produces same predictions
+
+  Run all tests:
+    python -m pytest tests/ -v
+
+
+========================================================================
+DEPENDENCIES (requirements.txt)
+========================================================================
+
+  numpy>=1.26         -- Numerical computing
+  pandas>=2.1         -- Data manipulation
+  scikit-learn>=1.4   -- ML utilities (GridSearchCV, LabelEncoder)
+  xgboost>=2.0        -- The forecasting model
+  holidays>=0.40      -- Turkish public holiday calendar
+  spacy>=3.7          -- NLP (for drug name processing)
+  scispacy>=0.5.4     -- Medical NLP
+  flask>=3.0          -- REST API (Phase 5)
+  streamlit>=1.32     -- Dashboard (Phase 6)
+  kagglehub>=0.3      -- Kaggle dataset download
+  pytest>=7.4         -- Testing framework
+
+
+========================================================================
+HOW TO SET UP FROM SCRATCH
+========================================================================
+
+  1. Clone the repo
+  2. Create virtual environment:
+       py -3.11 -m venv venv
+  3. Activate:
+       .\venv\Scripts\activate        (PowerShell)
+       source venv/Scripts/activate    (bash)
+  4. Install dependencies:
+       pip install -r requirements.txt
+  5. Download data and build database:
+       python scripts/ingest_kaggle.py
+  6. Run the data pipeline:
+       python scripts/run_pipeline.py
+  7. Train the model:
+       python scripts/train_model.py
+  8. Run tests:
+       python -m pytest tests/ -v
+
+
+========================================================================
+WHAT'S NEXT
+========================================================================
+
+  Phase 4 -- Risk Classification
+    Flag drugs that are at risk of running out of stock based on
+    predicted demand vs current inventory levels.
+
+  Phase 5 -- Flask REST API
+    Expose predictions and risk alerts via HTTP endpoints so other
+    systems (or the dashboard) can consume them.
+
+  Phase 6 -- Streamlit Dashboard
+    Visual interface showing demand forecasts, risk alerts, and
+    inventory status for pharmacy staff.
+
+  Phase 7 -- Testing
+    Expand test coverage across all modules.
+
+  Phase 8 -- GP Report
+    Write the graduation project report following university guidelines.
