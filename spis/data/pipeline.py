@@ -37,6 +37,8 @@ TURKEY_SCHOOL_HOLIDAYS = [
 ]
 
 # The 8 ATC codes present in the Kaggle pharmacy sales dataset.
+# Kept here for test fixtures and documentation; the pipeline itself derives
+# expected codes from the database at runtime — not this constant.
 EXPECTED_ATC_CODES = {"M01AB", "M01AE", "N02BA", "N02BE", "N05B", "N05C", "R03", "R06"}
 
 
@@ -101,12 +103,6 @@ def validate(df: pd.DataFrame) -> pd.DataFrame:
         print(f"[pipeline] WARNING: {neg_count} negative quantities found — clipping to 0.")
         df["quantity"] = df["quantity"].clip(lower=0)
 
-    # --- ATC code check ---
-    found_codes = set(df["atc_code"].unique())
-    missing = EXPECTED_ATC_CODES - found_codes
-    if missing:
-        print(f"[pipeline] WARNING: Missing ATC codes: {missing}")
-
     # --- Duplicate check ---
     dup_count = df.duplicated(subset=["atc_code", "date"]).sum()
     if dup_count > 0:
@@ -114,6 +110,7 @@ def validate(df: pd.DataFrame) -> pd.DataFrame:
         df = df.groupby(["atc_code", "date"], as_index=False)["quantity"].sum()
 
     # --- Summary ---
+    found_codes = set(df["atc_code"].unique())
     print(f"[pipeline] Validation passed:")
     print(f"  Rows       : {len(df):,}")
     print(f"  Date range : {df['date'].min().date()} to {df['date'].max().date()}")
