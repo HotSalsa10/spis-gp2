@@ -7,6 +7,9 @@ Trains a single XGBoost regressor across all ATC codes, compares it
 against naive and moving-average baselines, and saves model artifacts
 for downstream use (Flask API in Phase 5).
 
+Model input: 36 features (35 from pipeline + atc_encoded).
+Baseline MAE history: naive=4.23, moving-avg=2.89, XGBoost Run3=1.58 (27 features).
+
 Usage:
     from spis.models.forecaster import train_and_evaluate, load_model
     results = train_and_evaluate("data/processed/train.csv",
@@ -25,20 +28,21 @@ from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBRegressor
 
-# Feature columns used by the model (27 total).
+# Feature columns used by the model (36 total).
 FEATURE_COLS = [
     "atc_encoded",
-    # Calendar (10)
+    # Calendar (12)
     "day_of_week", "day_of_month", "month", "year", "week_of_year", "is_weekend",
     "is_holiday", "season", "is_payday_window", "is_school_holiday",
-    # Lags (5)
-    "lag_1", "lag_7", "lag_14", "lag_28", "lag_365",
-    # Rolling windows (9)
+    "quarter", "days_to_month_end",
+    # Lags (7)
+    "lag_1", "lag_2", "lag_3", "lag_7", "lag_14", "lag_28", "lag_365",
+    # Rolling windows (12)
     "rolling_mean_7", "rolling_std_7", "rolling_mean_14", "rolling_mean_28",
-    "rolling_min_7", "rolling_max_7", "rolling_mean_90", "rolling_mean_365",
-    "ema_7",
-    # Derived (2)
-    "lag_ratio_7", "trend_counter",
+    "rolling_std_28", "rolling_min_7", "rolling_max_7", "rolling_mean_90",
+    "rolling_mean_365", "ema_7", "ema_14", "ema_28",
+    # Derived (4)
+    "lag_ratio_7", "trend_counter", "rolling_range_7", "ema_ratio",
 ]
 
 TARGET_COL = "quantity"

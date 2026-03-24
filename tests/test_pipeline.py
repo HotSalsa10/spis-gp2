@@ -112,27 +112,28 @@ def test_fill_missing_dates():
 # ---------------------------------------------------------------------------
 
 def test_engineer_features_columns(small_daily_df):
-    """All 26 engineered feature columns should be present after transformation."""
+    """All 35 engineered feature columns should be present after transformation."""
     result = engineer_features(small_daily_df)
 
     expected_features = [
-        # Calendar (10)
+        # Calendar (12)
         "day_of_week", "day_of_month", "month", "year", "week_of_year", "is_weekend",
         "is_holiday", "season", "is_payday_window", "is_school_holiday",
-        # Lags (5)
-        "lag_1", "lag_7", "lag_14", "lag_28", "lag_365",
-        # Rolling (9)
+        "quarter", "days_to_month_end",
+        # Lags (7)
+        "lag_1", "lag_2", "lag_3", "lag_7", "lag_14", "lag_28", "lag_365",
+        # Rolling (12)
         "rolling_mean_7", "rolling_std_7", "rolling_mean_14", "rolling_mean_28",
-        "rolling_min_7", "rolling_max_7", "rolling_mean_90", "rolling_mean_365",
-        "ema_7",
-        # Derived (2)
-        "lag_ratio_7", "trend_counter",
+        "rolling_std_28", "rolling_min_7", "rolling_max_7", "rolling_mean_90",
+        "rolling_mean_365", "ema_7", "ema_14", "ema_28",
+        # Derived (4)
+        "lag_ratio_7", "trend_counter", "rolling_range_7", "ema_ratio",
     ]
     for feat in expected_features:
         assert feat in result.columns, f"Missing feature column: {feat}"
 
-    # Total columns: 3 original + 26 features = 29
-    assert len(result.columns) == 29
+    # Total columns: 3 original + 35 features = 38
+    assert len(result.columns) == 38
 
 
 def test_engineer_features_lag_values(small_daily_df):

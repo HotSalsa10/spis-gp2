@@ -7,15 +7,15 @@ and splits into train/test sets for XGBoost forecasting (Phase 3).
 
 Output granularity: daily (one row per ATC code per day).
 
-Features engineered (26 total):
+Features engineered (35 total):
     Calendar  — day_of_week, day_of_month, month, year, week_of_year,
                 is_weekend, is_holiday, season, is_payday_window,
-                is_school_holiday
-    Lags      — lag_1, lag_7, lag_14, lag_28, lag_365
+                is_school_holiday, quarter, days_to_month_end
+    Lags      — lag_1, lag_2, lag_3, lag_7, lag_14, lag_28, lag_365
     Rolling   — rolling_mean_7, rolling_std_7, rolling_mean_14, rolling_mean_28,
-                rolling_min_7, rolling_max_7, rolling_mean_90, rolling_mean_365,
-                ema_7
-    Derived   — lag_ratio_7, trend_counter
+                rolling_std_28, rolling_min_7, rolling_max_7, rolling_mean_90,
+                rolling_mean_365, ema_7, ema_14, ema_28
+    Derived   — lag_ratio_7, trend_counter, rolling_range_7, ema_ratio
 
 Usage:
     from spis.data.pipeline import run_pipeline
@@ -188,28 +188,29 @@ def _is_school_holiday(date_series: pd.Series) -> pd.Series:
 
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Add 26 time-series features to each row, computed per ATC code.
+    Add 35 time-series features to each row, computed per ATC code.
 
-    Calendar features (10):
+    Calendar features (12):
         day_of_week, day_of_month, month, year, week_of_year, is_weekend,
-        is_holiday, season, is_payday_window, is_school_holiday
+        is_holiday, season, is_payday_window, is_school_holiday,
+        quarter, days_to_month_end
 
-    Lag features (5):
-        lag_1, lag_7, lag_14, lag_28, lag_365
+    Lag features (7):
+        lag_1, lag_2, lag_3, lag_7, lag_14, lag_28, lag_365
 
-    Rolling window features (9):
+    Rolling window features (12):
         rolling_mean_7, rolling_std_7, rolling_mean_14, rolling_mean_28,
-        rolling_min_7, rolling_max_7, rolling_mean_90, rolling_mean_365,
-        ema_7
+        rolling_std_28, rolling_min_7, rolling_max_7, rolling_mean_90,
+        rolling_mean_365, ema_7, ema_14, ema_28
 
-    Derived features (2):
-        lag_ratio_7, trend_counter
+    Derived features (4):
+        lag_ratio_7, trend_counter, rolling_range_7, ema_ratio
 
     Args:
         df: DataFrame with columns [date, atc_code, quantity].
 
     Returns:
-        DataFrame with all original columns plus 26 new feature columns.
+        DataFrame with all original columns plus 35 new feature columns.
     """
     df = df.sort_values(["atc_code", "date"]).copy()
 
@@ -242,11 +243,17 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     # School holidays (Turkish MEB calendar)
     df["is_school_holiday"] = _is_school_holiday(df["date"])
 
+    # Quarter: 1=Q1 (Jan-Mar), 2=Q2 (Apr-Jun), 3=Q3 (Jul-Sep), 4=Q4 (Oct-Dec)
+    df["quarter"] = df["date"].dt.quarter
+
+    # Days to month end: captures end-of-month prescription pickup spikes
+    df["days_to_month_end"] = df["date"].dt.days_in_month - df["day_of_month"]
+
     # ── Lag and rolling features (per ATC code) ──────────────────────────
     grouped = df.groupby("atc_code")["quantity"]
 
-    # Lag features
-    for lag in [1, 7, 14, 28, 365]:
+    # Lag features: short-term (1-3 days) and medium-term (7, 14, 28, 365 days)
+    for lag in [1, 2, 3, 7, 14, 28, 365]:
         df[f"lag_{lag}"] = grouped.shift(lag)
 
     # Rolling window features
@@ -254,13 +261,16 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df["rolling_std_7"]    = grouped.transform(lambda x: x.rolling(7).std())
     df["rolling_mean_14"]  = grouped.transform(lambda x: x.rolling(14).mean())
     df["rolling_mean_28"]  = grouped.transform(lambda x: x.rolling(28).mean())
+    df["rolling_std_28"]   = grouped.transform(lambda x: x.rolling(28).std())   # monthly volatility
     df["rolling_min_7"]    = grouped.transform(lambda x: x.rolling(7).min())
     df["rolling_max_7"]    = grouped.transform(lambda x: x.rolling(7).max())
     df["rolling_mean_90"]  = grouped.transform(lambda x: x.rolling(90).mean())
     df["rolling_mean_365"] = grouped.transform(lambda x: x.rolling(365).mean())
 
-    # Exponential moving average (reacts faster to recent demand changes)
-    df["ema_7"] = grouped.transform(lambda x: x.ewm(span=7).mean())
+    # Multi-span EMAs: short (7d), medium (14d), long (28d)
+    df["ema_7"]  = grouped.transform(lambda x: x.ewm(span=7).mean())
+    df["ema_14"] = grouped.transform(lambda x: x.ewm(span=14).mean())
+    df["ema_28"] = grouped.transform(lambda x: x.ewm(span=28).mean())
 
     # ── Derived features ─────────────────────────────────────────────────
 
@@ -271,7 +281,13 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     date_min = df["date"].min()
     df["trend_counter"] = (df["date"] - date_min).dt.days
 
-    print(f"[pipeline] Engineered 26 features -> {len(df.columns)} total columns.")
+    # Weekly demand range: max minus min over last 7 days (amplitude / volatility proxy)
+    df["rolling_range_7"] = df["rolling_max_7"] - df["rolling_min_7"]
+
+    # EMA momentum ratio: short EMA relative to long EMA (>1 = demand accelerating)
+    df["ema_ratio"] = df["ema_7"] / df["ema_28"].replace(0, np.nan)
+
+    print(f"[pipeline] Engineered 35 features -> {len(df.columns)} total columns.")
     return df
 
 
