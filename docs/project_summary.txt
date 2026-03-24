@@ -396,6 +396,52 @@ HOW TO SET UP FROM SCRATCH
 
 
 ========================================================================
+PHARMACY-AGNOSTIC SCALABILITY (added after Phase 5)
+========================================================================
+
+WHAT WAS DONE
+  Decoupled the system from the Kaggle dataset so any pharmacy can
+  load their own historical sales data and use the full SPIS pipeline.
+
+CHANGES
+  spis/data/pipeline.py
+    Removed hardcoded check for the 8 Kaggle ATC codes from validate().
+    The pipeline now accepts any set of ATC codes from any pharmacy.
+    EXPECTED_ATC_CODES constant kept for test fixtures only.
+
+  scripts/ingest_data.py  (NEW)
+    Generic CSV ingester. Expects long/tidy format:
+        date,atc_code,quantity
+        2023-01-01,M01AB,45.0
+    Column names configurable via --date-col / --atc-col / --qty-col.
+    --register flag auto-registers unknown ATC codes so new pharmacies
+    can onboard without a manual pre-registration step.
+
+  scripts/register_atc.py  (NEW)
+    Manually register a new ATC drug category before ingesting data.
+    Inserts into atc_categories + atc_inventory with full metadata.
+    Safe to re-run (INSERT OR IGNORE). --list prints all codes.
+
+HOW TO ONBOARD A NEW PHARMACY
+  1. Register each new drug category:
+       python scripts/register_atc.py --code A10BA --name "Biguanides" --stock 200
+     Or auto-register everything in bulk:
+       python scripts/ingest_data.py --csv sales.csv --register
+
+  2. Load historical sales data:
+       python scripts/ingest_data.py --csv sales.csv
+
+  3. Rebuild the feature pipeline:
+       python scripts/run_pipeline.py
+
+  4. Retrain the XGBoost model:
+       python scripts/train_model.py
+
+  5. Start the API:
+       python scripts/run_api.py
+
+
+========================================================================
 WHAT'S NEXT
 ========================================================================
 
