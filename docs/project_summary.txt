@@ -307,7 +307,7 @@ KEY FILES
 FULL TEST SUITE
 ========================================================================
 
-52 tests total, all passing:
+75 tests total, all passing:
 
   tests/test_pipeline.py (7 tests):
     - Validates clean data handling
@@ -349,6 +349,35 @@ FULL TEST SUITE
     - Tests forecast values are non-negative
     - Tests unknown ATC code returns 404 with error field
     - Tests /api/v1/forecast returns 503 when model absent
+
+  tests/test_database.py (6 tests):
+    - Tests all 4 tables are created by init_db
+    - Tests init_db is idempotent (safe to call twice)
+    - Tests atc_categories seeded with correct row count
+    - Tests drugs seeded with correct total and critical counts
+    - Tests atc_inventory seeded with correct row count
+    - Tests sales table starts empty
+
+  tests/test_ingest_data.py (11 tests):
+    - Tests _load_and_normalise returns 5 expected columns
+    - Tests row count matches CSV input
+    - Tests granularity argument propagated to all rows
+    - Tests negative quantities clipped to 0
+    - Tests custom column-name mapping works
+    - Tests missing column triggers SystemExit
+    - Tests _get_db_atc_codes returns empty set for empty DB
+    - Tests _get_db_atc_codes returns correct codes
+    - Tests _register_unknown_codes inserts into atc_categories
+    - Tests _register_unknown_codes inserts into atc_inventory (stock=0)
+    - Tests _register_unknown_codes is idempotent
+
+  tests/test_register_atc.py (6 tests):
+    - Tests _infer_levels on standard 5-char ATC code
+    - Tests _infer_levels on level-5 7-char code
+    - Tests _infer_levels on single-letter anatomical code
+    - Tests _infer_levels normalises lowercase input
+    - Tests _infer_levels on 2-char code shorter than level-2
+    - Tests _infer_levels strips leading/trailing whitespace
 
   Run all tests:
     python -m pytest tests/ -v
@@ -442,15 +471,46 @@ HOW TO ONBOARD A NEW PHARMACY
 
 
 ========================================================================
+PHASE 7 -- Testing
+========================================================================
+
+WHAT WAS DONE
+  Expanded the test suite to cover the database module and the two new
+  pharmacy-agnostic ingestion scripts added after Phase 5.
+
+NEW TEST FILES
+  tests/test_database.py   (6 tests)
+    Verifies init_db creates all 4 tables, seeds the correct number of
+    rows, and is safe to call twice (idempotency).
+
+  tests/test_ingest_data.py  (11 tests)
+    Unit tests for the three helper functions in scripts/ingest_data.py:
+      _load_and_normalise  -- columns, row count, granularity, negative
+                              clipping, custom column names, missing column
+      _get_db_atc_codes    -- empty DB and populated DB
+      _register_unknown_codes -- inserts categories + inventory, idempotent
+
+  tests/test_register_atc.py  (6 tests)
+    Tests for _infer_levels() in scripts/register_atc.py covering
+    standard, level-5, single-letter, lowercase, short, and whitespace
+    edge cases.
+
+KEY FILES
+  tests/test_database.py
+  tests/test_ingest_data.py
+  tests/test_register_atc.py
+
+  Total test suite: 75 tests, all passing.
+    python -m pytest tests/ -v
+
+
+========================================================================
 WHAT'S NEXT
 ========================================================================
 
   Phase 6 -- Streamlit Dashboard
     Visual interface showing demand forecasts, risk alerts, and
     inventory status for pharmacy staff. Calls the Phase 5 Flask API.
-
-  Phase 7 -- Testing
-    Expand test coverage across all modules.
 
   Phase 8 -- GP Report
     Write the graduation project report following university guidelines.
