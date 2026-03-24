@@ -3,10 +3,11 @@ spis/data/database.py
 ---------------------
 Initialises the SPIS SQLite database schema and seeds the ATC / drug reference data.
 
-Schema (3 tables):
+Schema (4 tables):
     atc_categories  — ATC-4 classification reference (8 rows)
     drugs           — Clinical drug catalog (57 rows)
     sales           — Time-series fact table (rows inserted by ingest_kaggle.py)
+    atc_inventory   — Current stock level per ATC code (Phase 4)
 
 Usage:
     from spis.data.database import init_db
@@ -41,6 +42,27 @@ ATC_CATEGORIES = [
 #   • N05B/N05C — controlled substances; abrupt withdrawal -> seizures / crisis
 #   • N02BE      — first-line analgesic (Paracetamol); mass-demand essential
 #   • R03        — bronchodilators / ICS; life-critical for asthma / COPD patients
+
+# ---------------------------------------------------------------------------
+# Reference Data — ATC Inventory (Phase 4 seed stock levels)
+# ---------------------------------------------------------------------------
+# Mock stock values chosen to demonstrate all 4 risk tiers in the demo:
+#   CRITICAL (DoS < 3)  : N02BE (~2 days), R03 (~2 days)
+#   LOW      (3 <= < 7) : M01AB (~6 days)
+#   OK       (7 <= < 30): N02BA (~15 days), N05B (~20 days), N05C (~25 days)
+#   OVERSTOCK (>= 30)   : M01AE (~40 days), R06 (~40 days)
+
+ATC_INVENTORY_SEED = [
+    # (atc_code, current_stock, notes)
+    ("M01AB", 60.0,  "~6 days of stock (LOW risk)"),
+    ("M01AE", 500.0, "~40 days of stock (OVERSTOCK)"),
+    ("N02BA", 90.0,  "~15 days of stock (OK)"),
+    ("N02BE", 40.0,  "~2 days of stock (CRITICAL)"),
+    ("N05B",  100.0, "~20 days of stock (OK)"),
+    ("N05C",  75.0,  "~25 days of stock (OK)"),
+    ("R03",   25.0,  "~2 days of stock (CRITICAL)"),
+    ("R06",   420.0, "~40 days of stock (OVERSTOCK)"),
+]
 
 DRUGS_CATALOG = [
     # (drug_name, atc_code, unit, is_critical)
@@ -191,11 +213,19 @@ def _create_tables(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_sales_granularity
             ON sales (granularity);
+
+        -- Current stock level per ATC code (Phase 4 risk classification)
+        CREATE TABLE IF NOT EXISTS atc_inventory (
+            atc_code      TEXT PRIMARY KEY REFERENCES atc_categories(atc_code),
+            current_stock REAL NOT NULL CHECK (current_stock >= 0),
+            last_updated  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            notes         TEXT
+        );
     """)
 
 
 def _seed_reference_data(conn: sqlite3.Connection) -> None:
-    """Insert ATC categories and drug catalog rows (skips duplicates)."""
+    """Insert ATC categories, drug catalog, and inventory rows (skips duplicates)."""
     conn.executemany(
         "INSERT OR IGNORE INTO atc_categories VALUES (?,?,?,?,?)",
         ATC_CATEGORIES,
@@ -203,6 +233,10 @@ def _seed_reference_data(conn: sqlite3.Connection) -> None:
     conn.executemany(
         "INSERT OR IGNORE INTO drugs (drug_name, atc_code, unit, is_critical) VALUES (?,?,?,?)",
         DRUGS_CATALOG,
+    )
+    conn.executemany(
+        "INSERT OR IGNORE INTO atc_inventory (atc_code, current_stock, notes) VALUES (?,?,?)",
+        ATC_INVENTORY_SEED,
     )
 
 
@@ -212,6 +246,8 @@ def _print_summary(db_path: Path) -> None:
         atc_n   = conn.execute("SELECT COUNT(*) FROM atc_categories").fetchone()[0]
         drug_n  = conn.execute("SELECT COUNT(*) FROM drugs").fetchone()[0]
         crit_n  = conn.execute("SELECT COUNT(*) FROM drugs WHERE is_critical=1").fetchone()[0]
+        inv_n   = conn.execute("SELECT COUNT(*) FROM atc_inventory").fetchone()[0]
     print(f"[database]   atc_categories : {atc_n:>4} rows")
     print(f"[database]   drugs          : {drug_n:>4} rows  ({crit_n} critical)")
+    print(f"[database]   atc_inventory  : {inv_n:>4} rows  (Phase 4 stock levels)")
     print(f"[database]   sales          :    0 rows  (populated by ingest_kaggle.py)")

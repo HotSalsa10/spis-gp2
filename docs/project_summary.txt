@@ -1,4 +1,4 @@
-SPIS -- Full Project Summary (Phases 1-3)
+SPIS -- Full Project Summary (Phases 1-5)
 ==========================================
 Smart Pharmacy Inventory System
 Graduation Project 2
@@ -31,10 +31,11 @@ THE DATA
   - Data comes in 4 granularities: hourly, daily, weekly, monthly
 
 DATABASE (data/inventory.db)
-  3 tables:
+  4 tables:
     atc_categories  -- 8 rows (one per drug category)
     drugs           -- 57 rows (individual drug products)
     sales           -- 424,080 rows (all sales records)
+    atc_inventory   -- 8 rows (current stock per ATC code, added Phase 4)
 
   This file is git-ignored. To recreate it:
     python scripts/ingest_kaggle.py
@@ -46,7 +47,7 @@ PROJECT STRUCTURE
     api/              -- Flask REST API (Phase 5)
     dashboard/        -- Streamlit app (Phase 6)
   tests/              -- Automated test suite
-  scripts/            -- CLI entry points (ingest, pipeline, train)
+  scripts/            -- CLI entry points (ingest, pipeline, train, api)
   data/raw/           -- Raw CSV files (git-ignored)
   data/processed/     -- Pipeline output CSVs (git-ignored)
   models/             -- Trained model files (git-ignored)
@@ -66,14 +67,14 @@ PHASE 2 -- Data Pipeline & Feature Engineering
 
 WHAT WAS DONE
   Built an automated pipeline that takes raw daily sales from the
-  database, fills date gaps, engineers 26 time-series features, and
+  database, fills date gaps, engineers 35 time-series features, and
   splits the data into train/test sets for the ML model.
 
 PIPELINE STEPS
   1. Extract daily sales (16,848 rows = 8 ATC codes x 2,106 days)
   2. Validate (check nulls, negatives, duplicates)
   3. Fill missing dates with quantity=0
-  4. Engineer 26 features (see below)
+  4. Engineer 35 features (see below)
   5. Split into train (before 2019) and test (2019 onwards)
 
 OUTPUT FILES (data/processed/ -- git-ignored)
@@ -84,11 +85,11 @@ OUTPUT FILES (data/processed/ -- git-ignored)
   To recreate:
     python scripts/run_pipeline.py
 
-THE 26 ENGINEERED FEATURES
+THE 35 ENGINEERED FEATURES
   All derived from the sales data itself -- nothing external except
   the Turkey holiday and school calendars.
 
-  Calendar (10):
+  Calendar (12):
     day_of_week        -- Monday=0 through Sunday=6
     day_of_month       -- 1st through 31st
     month              -- January=1 through December=12
@@ -97,34 +98,43 @@ THE 26 ENGINEERED FEATURES
     is_weekend         -- 1 if Saturday/Sunday, else 0
     is_holiday         -- 1 if Turkish public holiday, else 0
     season             -- 1=Winter, 2=Spring, 3=Summer, 4=Fall
-    is_payday_window   -- 1 if day 1-3 or 15-17 of the month (Turkish salary cycle)
-    is_school_holiday  -- 1 if during Turkish school break (winter or summer)
+    is_payday_window   -- 1 if day 1-3 or 15-17 of the month
+    is_school_holiday  -- 1 if during Turkish school break
+    quarter            -- 1 through 4
+    days_to_month_end  -- Days remaining until end of month
 
-  Lags (5) -- "What were the sales X days ago?"
+  Lags (7) -- "What were the sales X days ago?"
     lag_1              -- Yesterday's sales
+    lag_2              -- 2 days ago
+    lag_3              -- 3 days ago
     lag_7              -- Same day last week
     lag_14             -- Two weeks ago
     lag_28             -- Four weeks ago
     lag_365            -- Same day last year
 
-  Rolling windows (9) -- Averages/stats over recent days:
+  Rolling windows (12) -- Averages/stats over recent days:
     rolling_mean_7     -- Average sales over last 7 days
     rolling_std_7      -- How much sales varied in last 7 days
     rolling_mean_14    -- Average over last 14 days
     rolling_mean_28    -- Average over last 28 days
+    rolling_std_28     -- Variance over last 28 days
     rolling_min_7      -- Lowest day in last week
     rolling_max_7      -- Highest day in last week
     rolling_mean_90    -- Average over last 3 months
     rolling_mean_365   -- Average over last year
-    ema_7              -- Exponential moving average (7-day, reacts faster
-                          to sudden changes than rolling_mean_7)
+    ema_7              -- Exponential moving average (7-day)
+    ema_14             -- Exponential moving average (14-day)
+    ema_28             -- Exponential moving average (28-day)
 
-  Derived (2):
-    lag_ratio_7        -- Yesterday's sales divided by the 7-day average.
-                          A value of 2.0 means "yesterday was double the
-                          usual" — helps detect demand spikes.
-    trend_counter      -- Days since the start of the dataset (0, 1, 2, ...).
-                          Captures long-term growth or decline in sales.
+  Derived (4):
+    lag_ratio_7        -- Yesterday's sales / 7-day average
+                          (detects demand spikes)
+    trend_counter      -- Days since dataset start
+                          (captures long-term growth/decline)
+    rolling_range_7    -- rolling_max_7 - rolling_min_7
+                          (measures recent demand volatility)
+    ema_ratio          -- ema_7 / ema_28
+                          (captures short vs long-term trend direction)
 
 KEY FILES
   spis/data/pipeline.py    -- All pipeline logic
@@ -142,7 +152,7 @@ WHAT WAS DONE
   adds value.
 
 HOW IT WORKS
-  Input:  27 features (the 26 above + drug category encoded as number)
+  Input:  36 features (the 35 above + drug category encoded as number)
   Output: Predicted sales quantity for that drug on that day
 
   The model learns patterns like:
@@ -154,8 +164,7 @@ HOW IT WORKS
 TRAINING PROCESS
   1. Load train/test CSVs from Phase 2
   2. Encode drug categories as integers (M01AB=0, M01AE=1, etc.)
-  3. Drop first-year rows where lag_365 has no data (can't look back
-     1 year when you only have a few months)
+  3. Drop first-year rows where lag_365 has no data
   4. Try 512 hyperparameter combinations using GridSearchCV with
      TimeSeriesSplit (5 folds) to find the best settings
   5. Evaluate on the held-out 2019 test data
@@ -165,35 +174,26 @@ RESULTS
   --------------------------------------------------
   Naive (lag_1)       4.23      7.23      98.42
   Moving Avg (7d)     2.89      4.98      67.83
-  XGBoost             1.58      2.98      34.22
+  XGBoost             1.07      2.49      18.80
 
   MAE  = Average prediction error (lower is better)
-  RMSE = Like MAE but penalizes big misses more
+  RMSE = Like MAE but penalises big misses more
   MAPE = Average error as a percentage
 
-  The "Naive" baseline just predicts yesterday's sales.
-  The "Moving Avg" baseline predicts the average of the last 7 days.
-  XGBoost cuts the error nearly in HALF compared to baselines.
+  XGBoost achieves MAE 1.07, beating the 7-day moving average by 63%.
 
 TOP FEATURES (what the model relies on most)
-  ema_7             0.2673   (exponential moving average -- strongest signal)
-  rolling_mean_7    0.1990   (7-day average)
-  rolling_mean_28   0.1654   (28-day average)
-  is_weekend        0.0421   (weekend effect)
-  rolling_mean_14   0.0417   (14-day average)
-  is_holiday        0.0359   (Turkish holidays matter!)
-  rolling_min_7     0.0300
-  rolling_max_7     0.0269
-  day_of_week       0.0203
-  lag_1             0.0201
+  ema_14            0.41   (14-day exponential moving average)
+  ema_7             0.36   (7-day exponential moving average)
+  ema_28            0.04   (28-day exponential moving average)
 
 BEST HYPERPARAMETERS
   n_estimators:      500
-  max_depth:         4
+  max_depth:         6
   learning_rate:     0.1
   subsample:         0.8
   colsample_bytree:  0.8
-  min_child_weight:  1
+  min_child_weight:  5
   reg_alpha:         0
 
 SAVED ARTIFACTS (models/ -- git-ignored)
@@ -211,10 +211,103 @@ KEY FILES
 
 
 ========================================================================
+PHASE 4 -- Risk Classification & Order Recommendations
+========================================================================
+
+WHAT WAS DONE
+  Added a risk classification layer on top of the forecaster.
+  For each drug category the system answers:
+    1. What is the current risk tier?
+    2. How many units should we order to cover the next 30 days?
+
+RISK TIERS (Days of Stock = current_stock / daily_demand)
+  CRITICAL  : DoS < 3 days  -- likely stockout within 3 days
+  LOW       : 3 to 7 days
+  OK        : 7 to 30 days
+  OVERSTOCK : 30+ days
+
+ORDER QUANTITY FORMULA
+  safety_buffer = daily_demand * safety_days  (default safety_days = 3)
+  order_qty     = max(0, forecast_30d + safety_buffer - current_stock)
+
+RESULT OBJECT (RiskAssessment -- immutable dataclass)
+  atc_code      : Drug category code
+  current_stock : Units on hand
+  forecast_30d  : Predicted demand over next 30 days
+  daily_demand  : forecast_30d / 30
+  days_of_stock : current_stock / daily_demand (null if demand = 0)
+  risk_tier     : CRITICAL | LOW | OK | OVERSTOCK
+  order_qty     : Recommended units to order
+
+KEY FILES
+  spis/models/risk_classifier.py  -- All risk logic
+  scripts/assess_risk.py          -- CLI entry point
+  tests/test_risk_classifier.py   -- 19 tests (all pass)
+
+  To run:
+    python scripts/assess_risk.py
+
+
+========================================================================
+PHASE 5 -- Flask REST API
+========================================================================
+
+WHAT WAS DONE
+  Exposed the forecasting and risk classification logic as HTTP
+  endpoints. External systems (or the Streamlit dashboard in Phase 6)
+  can now query SPIS over a standard REST API.
+
+ENDPOINTS
+  GET /health
+    Returns {"status": "ok", "version": "0.1.0"}
+    Always HTTP 200 if the server is running.
+
+  GET /api/v1/risk
+    Runs a full risk assessment for all 8 ATC codes.
+    Returns:
+      assessed_at  : ISO-8601 UTC timestamp
+      safety_days  : Safety buffer used in order-qty calculation
+      results      : List of per-ATC-code risk records (see Phase 4)
+    HTTP 503 if model artifacts are not loaded.
+
+  GET /api/v1/forecast/<atc_code>
+    Returns a 30-day demand forecast for a single ATC code.
+    Example: GET /api/v1/forecast/M01AB
+    Returns:
+      atc_code       : The code requested
+      forecast_30d   : Total predicted demand over 30 days
+      daily_demand   : forecast_30d / 30
+      forecast_start : First date of the forecast window (ISO date)
+    HTTP 404 if the ATC code is unknown.
+    HTTP 503 if model artifacts are not loaded.
+
+APP DESIGN
+  - Flask app factory pattern: create_app(config=None)
+  - Model artifacts loaded once at startup (eager loading)
+  - If artifacts are missing, server starts but returns 503 on ML routes
+  - Routes registered via Blueprint for clean separation
+
+TO START THE SERVER
+  python scripts/run_api.py
+  python scripts/run_api.py --host 0.0.0.0 --port 8080 --debug
+
+  Requires model artifacts. Run these first if needed:
+    python scripts/ingest_kaggle.py
+    python scripts/run_pipeline.py
+    python scripts/train_model.py
+
+KEY FILES
+  spis/api/app.py      -- Flask app factory (create_app)
+  spis/api/routes.py   -- All route handlers (Blueprint)
+  scripts/run_api.py   -- CLI server launcher
+  tests/test_api.py    -- 18 tests (all pass)
+
+
+========================================================================
 FULL TEST SUITE
 ========================================================================
 
-15 tests total, all passing:
+52 tests total, all passing:
 
   tests/test_pipeline.py (7 tests):
     - Validates clean data handling
@@ -234,6 +327,28 @@ FULL TEST SUITE
     - Tests known error values are calculated correctly
     - Tests XGBoost training returns a valid model
     - Tests save/load roundtrip produces same predictions
+
+  tests/test_risk_classifier.py (19 tests):
+    - Tests all 4 risk tier boundaries
+    - Tests order quantity formula
+    - Tests zero-demand edge case (infinite DoS)
+    - Tests RiskAssessment dataclass immutability
+    - Tests forecast_30_days determinism
+    - Tests unknown ATC code raises ValueError
+    - Tests inventory loading from SQLite
+
+  tests/test_api.py (18 tests):
+    - Tests /health returns 200 with status and version
+    - Tests /api/v1/risk returns 200 with all required fields
+    - Tests all 8 ATC codes appear in risk results
+    - Tests risk tier values are valid
+    - Tests order_qty is non-negative
+    - Tests metadata (assessed_at, safety_days) present
+    - Tests /api/v1/risk returns 503 when model absent
+    - Tests /api/v1/forecast/<code> returns 200 and all fields
+    - Tests forecast values are non-negative
+    - Tests unknown ATC code returns 404 with error field
+    - Tests /api/v1/forecast returns 503 when model absent
 
   Run all tests:
     python -m pytest tests/ -v
@@ -276,23 +391,17 @@ HOW TO SET UP FROM SCRATCH
        python scripts/train_model.py
   8. Run tests:
        python -m pytest tests/ -v
+  9. Start the API server:
+       python scripts/run_api.py
 
 
 ========================================================================
 WHAT'S NEXT
 ========================================================================
 
-  Phase 4 -- Risk Classification
-    Flag drugs that are at risk of running out of stock based on
-    predicted demand vs current inventory levels.
-
-  Phase 5 -- Flask REST API
-    Expose predictions and risk alerts via HTTP endpoints so other
-    systems (or the dashboard) can consume them.
-
   Phase 6 -- Streamlit Dashboard
     Visual interface showing demand forecasts, risk alerts, and
-    inventory status for pharmacy staff.
+    inventory status for pharmacy staff. Calls the Phase 5 Flask API.
 
   Phase 7 -- Testing
     Expand test coverage across all modules.
