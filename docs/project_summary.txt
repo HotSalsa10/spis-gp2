@@ -1,4 +1,4 @@
-SPIS -- Full Project Summary (Phases 1-5)
+SPIS -- Full Project Summary (Phases 1-6)
 ==========================================
 Smart Pharmacy Inventory System
 Graduation Project 2
@@ -505,12 +505,46 @@ KEY FILES
 
 
 ========================================================================
-WHAT'S NEXT
+PHASE 6 -- Streamlit Dashboard
 ========================================================================
 
-  Phase 6 -- Streamlit Dashboard
-    Visual interface showing demand forecasts, risk alerts, and
-    inventory status for pharmacy staff. Calls the Phase 5 Flask API.
+WHAT WAS DONE
+  Built a single-page Streamlit dashboard that shows inventory risk
+  tiers, 30-day demand forecasts, and recommended order quantities for
+  all 8 ATC codes. Imports model artifacts directly (no running API
+  required).
+
+FILES
+  spis/dashboard/app.py   -- Main Streamlit app (~100 lines)
+  scripts/run_dashboard.py -- Convenience launcher
+
+HOW TO RUN
+  # Activate the virtual environment first, then:
+  python scripts/run_dashboard.py
+  # Opens at http://localhost:8501
+
+  # Optional: custom port
+  python scripts/run_dashboard.py --port 8502
+
+  # Or directly via Streamlit:
+  streamlit run spis/dashboard/app.py
+
+WHAT IT SHOWS
+  1. Summary row: four metric cards (CRITICAL / LOW / OK / OVERSTOCK counts)
+  2. Risk table: all 8 ATC codes with stock, 30d forecast, daily demand,
+     days-of-stock, risk tier (colour-coded rows), and order quantity
+  3. Bar chart: recommended order quantities per ATC code
+
+DESIGN DECISIONS
+  - Imports directly from spis.models (not the Flask API) for simplicity.
+  - Uses @st.cache_resource for model/encoder (loaded once per process).
+  - Uses @st.cache_data(ttl=300) for assessment results (refreshed every 5 min).
+  - Guard at startup: shows clear error if pipeline/model artifacts are missing.
+
+
+========================================================================
+WHAT'S NEXT
+========================================================================
 
   Phase 8 -- GP Report
     Write the graduation project report following university guidelines.
