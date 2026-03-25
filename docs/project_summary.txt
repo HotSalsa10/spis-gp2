@@ -1,4 +1,4 @@
-SPIS -- Full Project Summary (Phases 1-6)
+SPIS -- Full Project Summary (Phases 1-8)
 ==========================================
 Smart Pharmacy Inventory System
 Graduation Project 2
@@ -534,6 +534,8 @@ WHAT IT SHOWS
   2. Risk table: all 8 ATC codes with stock, 30d forecast, daily demand,
      days-of-stock, risk tier (colour-coded rows), and order quantity
   3. Bar chart: recommended order quantities per ATC code
+  4. Medications table: all 57 individual drugs with name, ATC code, unit,
+     risk tier and order quantity (inherited from parent ATC group)
 
 DESIGN DECISIONS
   - Imports directly from spis.models (not the Flask API) for simplicity.
@@ -543,8 +545,36 @@ DESIGN DECISIONS
 
 
 ========================================================================
-WHAT'S NEXT
+PHASE 8 -- GP Report
 ========================================================================
 
-  Phase 8 -- GP Report
-    Write the graduation project report following university guidelines.
+WHAT WAS DONE
+  Wrote all 7 chapters of the graduation project report following the
+  university guidelines. All chapters saved to docs/.
+
+CHAPTERS
+  docs/chapter1_introduction.md      -- Background, problem, aims, timeline, team
+  docs/chapter2_literature_review.md -- ARIMA/Prophet/XGBoost comparison, research gap
+  docs/chapter3_requirements.md      -- FR/NFR tree, use cases, traceability matrix
+  docs/chapter4_design.md            -- Architecture, ER diagram, pseudocode algorithms
+  docs/chapter5_implementation.md    -- Dev environment, data structures, module walkthroughs
+  docs/chapter6_testing.md           -- 75 tests, defects table, error-handling coverage
+  docs/chapter7_conclusion.md        -- Objectives evaluation, limitations, future work
+
+CITATION STYLE
+  All references use IEEE format throughout.
+
+
+========================================================================
+PROJECT COMPLETE
+========================================================================
+
+  All 8 phases delivered:
+    Phase 1  -- Repo setup, SQLite schema, drug catalog, data ingestion
+    Phase 2  -- Feature engineering pipeline (35 features + ATC encoding)
+    Phase 3  -- XGBoost forecaster (MAE 1.07 vs naive 4.23)
+    Phase 4  -- Risk classification and order recommendations
+    Phase 5  -- Flask REST API (3 endpoints)
+    Phase 6  -- Streamlit dashboard (4 sections, 57 drugs shown)
+    Phase 7  -- Expanded test suite (75 tests, all passing)
+    Phase 8  -- GP Report (7 chapters, IEEE references)

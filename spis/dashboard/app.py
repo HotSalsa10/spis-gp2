@@ -13,6 +13,7 @@ Run:
     python scripts/run_dashboard.py
 """
 
+import sqlite3
 from collections import Counter
 from pathlib import Path
 
@@ -31,16 +32,24 @@ MODELS_DIR   = ROOT / "models"
 DB_PATH      = ROOT / "data" / "inventory.db"
 FEATURES_CSV = ROOT / "data" / "processed" / "features_daily.csv"
 
+# Emoji badge per tier — replaces faded background-color styling
+TIER_BADGE = {
+    "CRITICAL":  "🔴 CRITICAL",
+    "LOW":       "🟠 LOW",
+    "OK":        "🟢 OK",
+    "OVERSTOCK": "🔵 OVERSTOCK",
+}
+
 # ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
 
 st.set_page_config(page_title="SPIS Dashboard", layout="wide")
-st.title("Smart Pharmacy Inventory System")
-st.caption("Inventory risk assessment and 30-day demand forecast")
+st.title("🏥 Smart Pharmacy Inventory System")
+st.caption("30-day demand forecast · inventory risk · order recommendations")
 
 # ---------------------------------------------------------------------------
-# Data loading (cached so the model is not reloaded on every rerun)
+# Caching
 # ---------------------------------------------------------------------------
 
 REQUIRED_FILES = [
@@ -53,7 +62,6 @@ REQUIRED_FILES = [
 
 @st.cache_resource
 def _load_artifacts():
-    """Load model and inventory once; reuse across reruns."""
     model, encoder = load_model(MODELS_DIR)
     inventory = load_atc_inventory(DB_PATH)
     return model, encoder, inventory
@@ -61,7 +69,6 @@ def _load_artifacts():
 
 @st.cache_data(ttl=300)
 def _run_assessment(_model, _encoder, inventory):
-    """Run risk assessment (cached for 5 minutes)."""
     return assess_from_features(
         features_csv=FEATURES_CSV,
         inventory=inventory,
@@ -70,8 +77,18 @@ def _run_assessment(_model, _encoder, inventory):
     )
 
 
+@st.cache_data
+def _load_drugs(db_path: str) -> pd.DataFrame:
+    """Load the drugs catalog from SQLite."""
+    with sqlite3.connect(db_path) as conn:
+        return pd.read_sql_query(
+            "SELECT drug_name, atc_code, unit FROM drugs ORDER BY atc_code, drug_name",
+            conn,
+        )
+
+
 # ---------------------------------------------------------------------------
-# Guard: check required files exist before running
+# Guard: missing files
 # ---------------------------------------------------------------------------
 
 missing = [str(p) for p in REQUIRED_FILES if not p.exists()]
@@ -83,7 +100,7 @@ if missing:
     st.stop()
 
 # ---------------------------------------------------------------------------
-# Run assessment
+# Load data
 # ---------------------------------------------------------------------------
 
 with st.spinner("Running risk assessment ..."):
@@ -91,15 +108,16 @@ with st.spinner("Running risk assessment ..."):
     results = _run_assessment(model, encoder, inventory)
 
 # ---------------------------------------------------------------------------
-# Summary metrics (one card per tier)
+# Summary cards
 # ---------------------------------------------------------------------------
 
 tier_counts = Counter(ra.risk_tier for ra in results)
 
-cols = st.columns(4)
-tier_labels = {"CRITICAL": "🔴 Critical", "LOW": "🟠 Low", "OK": "🟢 OK", "OVERSTOCK": "🔵 Overstock"}
-for col, tier in zip(cols, ["CRITICAL", "LOW", "OK", "OVERSTOCK"]):
-    col.metric(tier_labels[tier], tier_counts.get(tier, 0))
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("🔴 Critical",  tier_counts.get("CRITICAL",  0), help="Stock runs out in < 3 days")
+c2.metric("🟠 Low",       tier_counts.get("LOW",       0), help="Stock runs out in 3–7 days")
+c3.metric("🟢 OK",        tier_counts.get("OK",        0), help="7–30 days of stock remaining")
+c4.metric("🔵 Overstock", tier_counts.get("OVERSTOCK", 0), help="More than 30 days of stock")
 
 st.divider()
 
@@ -108,37 +126,22 @@ st.divider()
 # ---------------------------------------------------------------------------
 
 st.subheader("Inventory Risk Assessment")
-
-TIER_BG = {
-    "CRITICAL":  "background-color: #ffe0e0",
-    "LOW":       "background-color: #fff3cd",
-    "OK":        "background-color: #d4edda",
-    "OVERSTOCK": "background-color: #cce5ff",
-}
+st.caption("Days of Stock = current stock ÷ daily demand  |  Order Qty = units needed for the next 30 days + safety buffer")
 
 rows = []
 for ra in results:
-    dos = round(ra.days_of_stock, 1) if ra.days_of_stock != float("inf") else "∞"
+    dos = f"{ra.days_of_stock:.1f}" if ra.days_of_stock != float("inf") else "∞"
     rows.append({
-        "ATC Code":      ra.atc_code,
-        "Stock (units)": round(ra.current_stock, 1),
-        "Forecast 30d":  round(ra.forecast_30d, 1),
-        "Daily Demand":  round(ra.daily_demand, 1),
-        "Days of Stock": dos,
-        "Risk Tier":     ra.risk_tier,
-        "Order Qty":     round(ra.order_qty, 1),
+        "Drug (ATC)":     ra.atc_code,
+        "In Stock":       round(ra.current_stock, 1),
+        "30d Forecast":   round(ra.forecast_30d, 1),
+        "Daily Demand":   round(ra.daily_demand, 1),
+        "Days of Stock":  dos,
+        "Risk":           TIER_BADGE[ra.risk_tier],
+        "Order Qty":      round(ra.order_qty, 1),
     })
 
-df = pd.DataFrame(rows)
-
-
-def _row_style(row):
-    css = TIER_BG.get(row["Risk Tier"], "")
-    return [css] * len(row)
-
-
-styled = df.style.apply(_row_style, axis=1)
-st.dataframe(styled, use_container_width=True, hide_index=True)
+st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 st.divider()
 
@@ -147,5 +150,34 @@ st.divider()
 # ---------------------------------------------------------------------------
 
 st.subheader("Recommended Order Quantities (units)")
-order_df = df.set_index("ATC Code")[["Order Qty"]]
+order_df = pd.DataFrame(rows).set_index("Drug (ATC)")[["Order Qty"]]
 st.bar_chart(order_df)
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Medications table (individual drugs, risk inherited from parent ATC code)
+# ---------------------------------------------------------------------------
+
+st.subheader("Medications by ATC Group")
+st.caption("Risk tier and order quantity are inherited from the parent ATC code group")
+
+drugs_df = _load_drugs(str(DB_PATH))
+
+# Build atc_code → RiskAssessment lookup
+ra_by_atc = {ra.atc_code: ra for ra in results}
+
+med_rows = []
+for _, drug in drugs_df.iterrows():
+    ra = ra_by_atc.get(drug["atc_code"])
+    if ra is None:
+        continue
+    med_rows.append({
+        "Drug Name":  drug["drug_name"],
+        "ATC Code":   drug["atc_code"],
+        "Unit":       drug["unit"],
+        "Risk":       TIER_BADGE[ra.risk_tier],
+        "Order Qty":  round(ra.order_qty, 1),
+    })
+
+st.dataframe(pd.DataFrame(med_rows), use_container_width=True, hide_index=True)
