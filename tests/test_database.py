@@ -10,7 +10,14 @@ import sqlite3
 
 import pytest
 
-from spis.data.database import ATC_CATEGORIES, DRUGS_CATALOG, ATC_INVENTORY_SEED, init_db
+from spis.data.database import (
+    ATC_CATEGORIES,
+    ATC_INVENTORY_SEED,
+    BATCH_SEED,
+    DRUGS_CATALOG,
+    init_db,
+    update_stock,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -99,3 +106,55 @@ def test_init_db_sales_starts_empty(tmp_db):
         count = conn.execute("SELECT COUNT(*) FROM sales").fetchone()[0]
 
     assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: Phase 8.5 — inventory_batches table and update_stock
+# ---------------------------------------------------------------------------
+
+
+def test_init_db_creates_inventory_batches_table(tmp_db):
+    """inventory_batches table must exist after init_db."""
+    init_db(tmp_db)
+
+    with sqlite3.connect(tmp_db) as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+
+    assert "inventory_batches" in tables
+
+
+def test_init_db_seeds_batches(tmp_db):
+    """inventory_batches should have exactly len(BATCH_SEED) rows after seeding."""
+    init_db(tmp_db)
+
+    with sqlite3.connect(tmp_db) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM inventory_batches").fetchone()[0]
+
+    assert count == len(BATCH_SEED)
+
+
+def test_update_stock_changes_value(tmp_db):
+    """update_stock must update current_stock for the given ATC code."""
+    init_db(tmp_db)
+
+    update_stock(tmp_db, "M01AB", 999.0)
+
+    with sqlite3.connect(tmp_db) as conn:
+        stock = conn.execute(
+            "SELECT current_stock FROM atc_inventory WHERE atc_code='M01AB'"
+        ).fetchone()[0]
+
+    assert stock == pytest.approx(999.0)
+
+
+def test_update_stock_raises_on_negative(tmp_db):
+    """update_stock must raise ValueError for negative stock values."""
+    init_db(tmp_db)
+
+    with pytest.raises(ValueError):
+        update_stock(tmp_db, "M01AB", -1.0)

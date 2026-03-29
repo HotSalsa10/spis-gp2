@@ -185,7 +185,8 @@ def forecast_30_days(
     atc_code: str,
     start_date: pd.Timestamp,
     days: int = 30,
-) -> float:
+    return_daily: bool = False,
+) -> float | list[float]:
     """
     Forecast total demand over `days` days starting from `start_date`.
 
@@ -198,16 +199,19 @@ def forecast_30_days(
         - Predictions are clipped to >= 0 before summing.
 
     Args:
-        model      : Trained XGBRegressor (from Phase 3).
-        encoder    : LabelEncoder fitted on ATC codes.
-        seed_row   : One-row DataFrame with all FEATURE_COLS for `atc_code`.
-                     (The last row of features_daily.csv for that code.)
-        atc_code   : ATC-4 code to forecast.
-        start_date : First date of the 30-day forecast window.
-        days       : Number of days to forecast (default 30).
+        model        : Trained XGBRegressor (from Phase 3).
+        encoder      : LabelEncoder fitted on ATC codes.
+        seed_row     : One-row DataFrame with all FEATURE_COLS for `atc_code`.
+                       (The last row of features_daily.csv for that code.)
+        atc_code     : ATC-4 code to forecast.
+        start_date   : First date of the 30-day forecast window.
+        days         : Number of days to forecast (default 30).
+        return_daily : If True, return a list of per-day predictions instead of
+                       the total float.  Default False (backwards-compatible).
 
     Returns:
-        Total predicted demand (float, >= 0).
+        Total predicted demand (float, >= 0) when return_daily is False.
+        List of `days` daily demand values (each >= 0) when return_daily is True.
 
     Raises:
         ValueError: If `atc_code` is not in the encoder's known classes.
@@ -228,7 +232,7 @@ def forecast_30_days(
     # Extract static (lag/rolling/EMA) values from the seed row
     seed = seed_row.iloc[0]
 
-    total = 0.0
+    daily_preds: list[float] = []
     for i in range(days):
         d = start_date + pd.Timedelta(days=i)
         month = d.month
@@ -263,10 +267,12 @@ def forecast_30_days(
         row_vals.update(calendar_vals)
 
         X = pd.DataFrame([row_vals])[FEATURE_COLS]
-        pred = float(model.predict(X)[0])
-        total += max(0.0, pred)
+        pred = max(0.0, float(model.predict(X)[0]))
+        daily_preds.append(pred)
 
-    return total
+    if return_daily:
+        return daily_preds
+    return sum(daily_preds)
 
 
 # ---------------------------------------------------------------------------

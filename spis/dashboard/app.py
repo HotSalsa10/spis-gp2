@@ -1,11 +1,11 @@
 """
 spis/dashboard/app.py
 ---------------------
-Phase 6 Streamlit dashboard for SPIS.
+Phase 8.5 Streamlit dashboard for SPIS — Overview page.
 
 Displays inventory risk tiers, 30-day demand forecasts, and order
-recommendations for all ATC codes — loaded directly from model artifacts
-(no running API required).
+recommendations for all ATC codes.  Additional pages (History & Forecast,
+Stock Update, Expiry Offers, Analytics) are in spis/dashboard/pages/.
 
 Run:
     streamlit run spis/dashboard/app.py
@@ -15,24 +15,18 @@ Run:
 
 import sqlite3
 from collections import Counter
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-from spis.models.forecaster import load_model
-from spis.models.risk_classifier import assess_from_features, load_atc_inventory
+from spis.dashboard._shared import (
+    DB_PATH,
+    check_required_files,
+    load_artifacts,
+    run_assessment,
+)
 
-# ---------------------------------------------------------------------------
-# Paths (resolved relative to this file → always correct regardless of cwd)
-# ---------------------------------------------------------------------------
-
-ROOT         = Path(__file__).resolve().parent.parent.parent
-MODELS_DIR   = ROOT / "models"
-DB_PATH      = ROOT / "data" / "inventory.db"
-FEATURES_CSV = ROOT / "data" / "processed" / "features_daily.csv"
-
-# Emoji badge per tier — replaces faded background-color styling
+# Emoji badge per tier
 TIER_BADGE = {
     "CRITICAL":  "🔴 CRITICAL",
     "LOW":       "🟠 LOW",
@@ -49,32 +43,18 @@ st.title("🏥 Smart Pharmacy Inventory System")
 st.caption("30-day demand forecast · inventory risk · order recommendations")
 
 # ---------------------------------------------------------------------------
-# Caching
+# Guard: missing files
 # ---------------------------------------------------------------------------
 
-REQUIRED_FILES = [
-    MODELS_DIR / "xgboost_forecaster.joblib",
-    MODELS_DIR / "label_encoder.joblib",
-    DB_PATH,
-    FEATURES_CSV,
-]
+check_required_files()
 
+# ---------------------------------------------------------------------------
+# Load data
+# ---------------------------------------------------------------------------
 
-@st.cache_resource
-def _load_artifacts():
-    model, encoder = load_model(MODELS_DIR)
-    inventory = load_atc_inventory(DB_PATH)
-    return model, encoder, inventory
-
-
-@st.cache_data(ttl=300)
-def _run_assessment(_model, _encoder, inventory):
-    return assess_from_features(
-        features_csv=FEATURES_CSV,
-        inventory=inventory,
-        model=_model,
-        encoder=_encoder,
-    )
+with st.spinner("Running risk assessment ..."):
+    model, encoder, inventory = load_artifacts()
+    results = run_assessment(model, encoder, inventory)
 
 
 @st.cache_data
@@ -88,24 +68,15 @@ def _load_drugs(db_path: str) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Guard: missing files
+# Critical alerts banner
 # ---------------------------------------------------------------------------
 
-missing = [str(p) for p in REQUIRED_FILES if not p.exists()]
-if missing:
-    st.error(
-        "Missing files — run the pipeline and train the model first:\n\n"
-        + "\n".join(f"- `{p}`" for p in missing)
+critical_items = [ra for ra in results if ra.risk_tier == "CRITICAL"]
+if critical_items:
+    names = "  |  ".join(
+        f"{ra.atc_code} (order {ra.order_qty:.0f} units)" for ra in critical_items
     )
-    st.stop()
-
-# ---------------------------------------------------------------------------
-# Load data
-# ---------------------------------------------------------------------------
-
-with st.spinner("Running risk assessment ..."):
-    model, encoder, inventory = _load_artifacts()
-    results = _run_assessment(model, encoder, inventory)
+    st.error(f"**ACTION REQUIRED** — {len(critical_items)} critical item(s) need reordering:  {names}")
 
 # ---------------------------------------------------------------------------
 # Summary cards

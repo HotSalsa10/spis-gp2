@@ -44,6 +44,25 @@ ATC_CATEGORIES = [
 #   • R03        — bronchodilators / ICS; life-critical for asthma / COPD patients
 
 # ---------------------------------------------------------------------------
+# Reference Data — Inventory Batches (Phase 8.5 expiry seed data)
+# ---------------------------------------------------------------------------
+# Mock batches chosen to demonstrate all discount tiers in the demo.
+# Dates are relative to the project demo date (March 29, 2026):
+#   LOT-2026-001 : expires Apr  8 2026 ( 10 days) -> Final Week   55% off
+#   LOT-2026-002 : expires Apr 23 2026 ( 25 days) -> Clearance    40% off
+#   LOT-2026-003 : expires May 20 2026 ( 52 days) -> Buy More     15% off
+
+BATCH_SEED = [
+    # (atc_code, batch_number, quantity, unit_cost, expiry_date, received_date, notes)
+    ("M01AE", "LOT-2026-001", 300.0, 0.50, "2026-04-08", "2025-10-01",
+     "10 days to expiry -- Final Week tier"),
+    ("R06",   "LOT-2026-002", 400.0, 0.35, "2026-04-23", "2025-10-01",
+     "25 days to expiry -- Clearance tier"),
+    ("N02BA", "LOT-2026-003", 150.0, 0.20, "2026-05-20", "2025-11-01",
+     "52 days to expiry -- Buy More tier"),
+]
+
+# ---------------------------------------------------------------------------
 # Reference Data — ATC Inventory (Phase 4 seed stock levels)
 # ---------------------------------------------------------------------------
 # Mock stock values chosen to demonstrate all 4 risk tiers in the demo:
@@ -221,6 +240,21 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             last_updated  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             notes         TEXT
         );
+
+        -- Per-batch stock with expiry date and unit cost (Phase 8.5)
+        CREATE TABLE IF NOT EXISTS inventory_batches (
+            batch_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            atc_code      TEXT    NOT NULL REFERENCES atc_categories(atc_code),
+            batch_number  TEXT    NOT NULL,
+            quantity      REAL    NOT NULL CHECK (quantity >= 0),
+            unit_cost     REAL    NOT NULL CHECK (unit_cost >= 0),
+            expiry_date   TEXT    NOT NULL,
+            received_date TEXT    NOT NULL DEFAULT CURRENT_DATE,
+            notes         TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_batches_atc_expiry
+            ON inventory_batches (atc_code, expiry_date);
     """)
 
 
@@ -238,16 +272,72 @@ def _seed_reference_data(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO atc_inventory (atc_code, current_stock, notes) VALUES (?,?,?)",
         ATC_INVENTORY_SEED,
     )
+    conn.executemany(
+        """INSERT OR IGNORE INTO inventory_batches
+               (atc_code, batch_number, quantity, unit_cost, expiry_date, received_date, notes)
+           VALUES (?,?,?,?,?,?,?)""",
+        BATCH_SEED,
+    )
 
 
 def _print_summary(db_path: Path) -> None:
     """Print a quick row-count summary to confirm seeding worked."""
     with sqlite3.connect(db_path) as conn:
-        atc_n   = conn.execute("SELECT COUNT(*) FROM atc_categories").fetchone()[0]
-        drug_n  = conn.execute("SELECT COUNT(*) FROM drugs").fetchone()[0]
-        crit_n  = conn.execute("SELECT COUNT(*) FROM drugs WHERE is_critical=1").fetchone()[0]
-        inv_n   = conn.execute("SELECT COUNT(*) FROM atc_inventory").fetchone()[0]
-    print(f"[database]   atc_categories : {atc_n:>4} rows")
-    print(f"[database]   drugs          : {drug_n:>4} rows  ({crit_n} critical)")
-    print(f"[database]   atc_inventory  : {inv_n:>4} rows  (Phase 4 stock levels)")
-    print(f"[database]   sales          :    0 rows  (populated by ingest_kaggle.py)")
+        atc_n    = conn.execute("SELECT COUNT(*) FROM atc_categories").fetchone()[0]
+        drug_n   = conn.execute("SELECT COUNT(*) FROM drugs").fetchone()[0]
+        crit_n   = conn.execute("SELECT COUNT(*) FROM drugs WHERE is_critical=1").fetchone()[0]
+        inv_n    = conn.execute("SELECT COUNT(*) FROM atc_inventory").fetchone()[0]
+        batch_n  = conn.execute("SELECT COUNT(*) FROM inventory_batches").fetchone()[0]
+    print(f"[database]   atc_categories    : {atc_n:>4} rows")
+    print(f"[database]   drugs             : {drug_n:>4} rows  ({crit_n} critical)")
+    print(f"[database]   atc_inventory     : {inv_n:>4} rows  (Phase 4 stock levels)")
+    print(f"[database]   inventory_batches : {batch_n:>4} rows  (Phase 8.5 expiry tracking)")
+    print(f"[database]   sales             :    0 rows  (populated by ingest_kaggle.py)")
+
+
+# ---------------------------------------------------------------------------
+# Public helpers — stock management (Phase 8.5)
+# ---------------------------------------------------------------------------
+
+def update_stock(db_path: str | Path, atc_code: str, new_stock: float) -> None:
+    """
+    Update the current stock level for one ATC code in atc_inventory.
+
+    Args:
+        db_path  : Path to the SQLite database.
+        atc_code : ATC-4 code to update.
+        new_stock: New stock level (must be >= 0).
+
+    Raises:
+        ValueError: If new_stock is negative.
+    """
+    if new_stock < 0:
+        raise ValueError(f"Stock cannot be negative: {new_stock}")
+    db_path = Path(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE atc_inventory SET current_stock=?, last_updated=CURRENT_TIMESTAMP "
+            "WHERE atc_code=?",
+            (new_stock, atc_code),
+        )
+        conn.commit()
+
+
+def load_batches(db_path: str | Path) -> list[dict]:
+    """
+    Load all inventory batches from the inventory_batches table.
+
+    Returns:
+        List of dicts with keys: batch_id, atc_code, batch_number, quantity,
+        unit_cost, expiry_date (ISO string), received_date, notes.
+    """
+    db_path = Path(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT batch_id, atc_code, batch_number, quantity,
+                      unit_cost, expiry_date, received_date, notes
+               FROM inventory_batches
+               ORDER BY expiry_date"""
+        ).fetchall()
+    return [dict(row) for row in rows]

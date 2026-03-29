@@ -281,9 +281,15 @@ def train_and_evaluate(
     with open(metrics_path, "w") as f:
         json.dump(results, f, indent=2)
 
+    fi_path = output_dir / "feature_importance.json"
+    fi_records = importance_df[["feature", "importance"]].to_dict(orient="records")
+    with open(fi_path, "w") as f:
+        json.dump(fi_records, f, indent=2)
+
     print(f"  {output_dir / 'xgboost_forecaster.joblib'}")
     print(f"  {output_dir / 'label_encoder.joblib'}")
     print(f"  {metrics_path}")
+    print(f"  {fi_path}")
     print("\nDone.")
 
     return results

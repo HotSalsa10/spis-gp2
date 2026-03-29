@@ -307,7 +307,7 @@ KEY FILES
 FULL TEST SUITE
 ========================================================================
 
-75 tests total, all passing:
+75 tests total, all passing (93 after Phase 8.5 — see that section):
 
   tests/test_pipeline.py (7 tests):
     - Validates clean data handling
@@ -350,13 +350,17 @@ FULL TEST SUITE
     - Tests unknown ATC code returns 404 with error field
     - Tests /api/v1/forecast returns 503 when model absent
 
-  tests/test_database.py (6 tests):
+  tests/test_database.py (10 tests):
     - Tests all 4 tables are created by init_db
     - Tests init_db is idempotent (safe to call twice)
     - Tests atc_categories seeded with correct row count
     - Tests drugs seeded with correct total and critical counts
     - Tests atc_inventory seeded with correct row count
     - Tests sales table starts empty
+    - Tests inventory_batches table created (Phase 8.5)
+    - Tests inventory_batches seeded with correct row count
+    - Tests update_stock() updates value in DB
+    - Tests update_stock() raises ValueError for negative stock
 
   tests/test_ingest_data.py (11 tests):
     - Tests _load_and_normalise returns 5 expected columns
@@ -566,15 +570,99 @@ CITATION STYLE
 
 
 ========================================================================
+PHASE 8.5 -- Dashboard Enhancements & Expiry Management
+========================================================================
+
+WHAT WAS DONE
+  Upgraded the single-page static dashboard to a multi-page interactive
+  application.  Added expiry-aware batch tracking, interactive stock
+  management, and analytics pages.
+
+NEW / CHANGED FILES
+
+  spis/data/database.py
+    - Added inventory_batches table (Phase 8.5 expiry tracking)
+    - BATCH_SEED: 3 demo batches covering all discount tiers
+    - New public functions: update_stock(), load_batches()
+
+  spis/models/forecaster.py
+    - train_and_evaluate() now saves models/feature_importance.json
+
+  spis/models/risk_classifier.py
+    - forecast_30_days() accepts return_daily=True to return list of
+      daily predictions (used by History & Forecast chart)
+
+  spis/models/expiry_advisor.py  (NEW)
+    - classify_discount(days_to_expiry) -> (pct, label, action)
+    - assess_batch(batch, daily_demand, today) -> ExpiryOffer | None
+    - assess_all_batches(batches, demand_by_atc) -> list[ExpiryOffer]
+    - Discount tiers: >60d None | 45-60d 15% | 30-44d 25% | 14-29d 40%
+      | 7-13d 55% | <7d return_to_supplier
+
+  spis/dashboard/_shared.py  (NEW)
+    - Shared path constants (ROOT, MODELS_DIR, DB_PATH, FEATURES_CSV)
+    - Shared cached loaders (load_artifacts, run_assessment)
+    - check_required_files() guard used by all pages
+
+  spis/dashboard/app.py  (UPDATED)
+    - Converted to Overview page of multi-page app
+    - Imports shared loaders from _shared.py
+    - Critical alerts banner at top when CRITICAL items exist
+
+  spis/dashboard/pages/1_History_Forecast.py  (NEW)
+    - ATC code selector + Plotly line chart
+    - Solid line: 90-day actual sales history from SQLite
+    - Dashed line: 30-day XGBoost forecast (return_daily=True)
+
+  spis/dashboard/pages/2_Stock_Update.py  (NEW)
+    - st.form with number_input per ATC code
+    - Calls update_stock() on changed values
+    - Clears cache and st.rerun() after save
+
+  spis/dashboard/pages/3_Expiry_Offers.py  (NEW)
+    - Loads batches via load_batches(), runs assess_all_batches()
+    - Colour-coded offers table + waste value bar chart
+    - Summary cards: batches needing action, units at risk, waste value
+
+  spis/dashboard/pages/4_Analytics.py  (NEW)
+    - Feature importance horizontal bar chart (top 20 features)
+    - ABC/Pareto demand analysis with A/B/C colour coding
+
+  requirements.txt
+    - Added plotly>=5.0
+
+TEST SUITE (93 tests total after Phase 8.5)
+
+  tests/test_database.py  (now 10 tests, +4)
+    - inventory_batches table created by init_db
+    - init_db seeds correct number of batches (len(BATCH_SEED))
+    - update_stock() changes the value in the DB
+    - update_stock() raises ValueError for negative stock
+
+  tests/test_expiry_advisor.py  (18 tests, NEW)
+    - classify_discount: all 6 tier boundaries
+    - assess_batch: returns None when too far out / demand covers stock /
+      already expired
+    - assess_batch: correct units_at_risk and waste_value
+    - assess_all_batches: sorted by urgency, skips zero-risk batches,
+      handles missing demand key
+
+  Run all tests:
+    python -m pytest tests/ -v
+
+
+========================================================================
 PROJECT COMPLETE
 ========================================================================
 
-  All 8 phases delivered:
-    Phase 1  -- Repo setup, SQLite schema, drug catalog, data ingestion
-    Phase 2  -- Feature engineering pipeline (35 features + ATC encoding)
-    Phase 3  -- XGBoost forecaster (MAE 1.07 vs naive 4.23)
-    Phase 4  -- Risk classification and order recommendations
-    Phase 5  -- Flask REST API (3 endpoints)
-    Phase 6  -- Streamlit dashboard (4 sections, 57 drugs shown)
-    Phase 7  -- Expanded test suite (75 tests, all passing)
-    Phase 8  -- GP Report (7 chapters, IEEE references)
+  All phases delivered:
+    Phase 1    -- Repo setup, SQLite schema, drug catalog, data ingestion
+    Phase 2    -- Feature engineering pipeline (35 features + ATC encoding)
+    Phase 3    -- XGBoost forecaster (MAE 1.07 vs naive 4.23)
+    Phase 4    -- Risk classification and order recommendations
+    Phase 5    -- Flask REST API (3 endpoints)
+    Phase 6    -- Streamlit dashboard (4 sections, 57 drugs shown)
+    Phase 7    -- Expanded test suite (75 tests, all passing)
+    Phase 8    -- GP Report (7 chapters, IEEE references)
+    Phase 8.5  -- Multi-page dashboard, expiry advisor, stock editor,
+                  analytics charts (93 tests total)
