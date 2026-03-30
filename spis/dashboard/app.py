@@ -67,6 +67,16 @@ def _load_drugs(db_path: str) -> pd.DataFrame:
         )
 
 
+@st.cache_data
+def _load_atc_names(db_path: str) -> dict[str, str]:
+    """Return dict mapping atc_code -> atc_name."""
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT atc_code, atc_name FROM atc_categories"
+        ).fetchall()
+    return {code: name for code, name in rows}
+
+
 # ---------------------------------------------------------------------------
 # Critical alerts banner
 # ---------------------------------------------------------------------------
@@ -85,10 +95,10 @@ if critical_items:
 tier_counts = Counter(ra.risk_tier for ra in results)
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("🔴 Critical",  tier_counts.get("CRITICAL",  0), help="Stock runs out in < 3 days")
-c2.metric("🟠 Low",       tier_counts.get("LOW",       0), help="Stock runs out in 3–7 days")
-c3.metric("🟢 OK",        tier_counts.get("OK",        0), help="7–30 days of stock remaining")
-c4.metric("🔵 Overstock", tier_counts.get("OVERSTOCK", 0), help="More than 30 days of stock")
+c1.metric("🔴 Critical",  tier_counts.get("CRITICAL",  0), help="Stock runs out in < 7 days")
+c2.metric("🟠 Low",       tier_counts.get("LOW",       0), help="Stock runs out in 7–14 days")
+c3.metric("🟢 OK",        tier_counts.get("OK",        0), help="14–60 days of stock remaining")
+c4.metric("🔵 Overstock", tier_counts.get("OVERSTOCK", 0), help="More than 60 days of stock")
 
 st.divider()
 
@@ -99,11 +109,14 @@ st.divider()
 st.subheader("Inventory Risk Assessment")
 st.caption("Days of Stock = current stock ÷ daily demand  |  Order Qty = units needed for the next 30 days + safety buffer")
 
+atc_names = _load_atc_names(str(DB_PATH))
+
 rows = []
 for ra in results:
     dos = f"{ra.days_of_stock:.1f}" if ra.days_of_stock != float("inf") else "∞"
     rows.append({
-        "Drug (ATC)":     ra.atc_code,
+        "ATC Code":       ra.atc_code,
+        "Drug Category":  atc_names.get(ra.atc_code, ra.atc_code),
         "In Stock":       round(ra.current_stock, 1),
         "30d Forecast":   round(ra.forecast_30d, 1),
         "Daily Demand":   round(ra.daily_demand, 1),
@@ -121,7 +134,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 
 st.subheader("Recommended Order Quantities (units)")
-order_df = pd.DataFrame(rows).set_index("Drug (ATC)")[["Order Qty"]]
+order_df = pd.DataFrame(rows).set_index("ATC Code")[["Order Qty"]]
 st.bar_chart(order_df)
 
 st.divider()

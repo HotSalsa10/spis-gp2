@@ -41,8 +41,41 @@ with st.spinner("Loading model ..."):
     model, encoder, inventory = load_artifacts()
     results = run_assessment(model, encoder, inventory)
 
+@st.cache_data
+def _load_drugs_by_atc(db_path: str) -> dict[str, list[str]]:
+    """Return dict: atc_code -> sorted list of drug names."""
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT atc_code, drug_name FROM drugs ORDER BY atc_code, drug_name"
+        ).fetchall()
+    result: dict[str, list[str]] = {}
+    for atc, name in rows:
+        result.setdefault(atc, []).append(name)
+    return result
+
+
+@st.cache_data
+def _load_atc_names(db_path: str) -> dict[str, str]:
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT atc_code, atc_name FROM atc_categories"
+        ).fetchall()
+    return {code: name for code, name in rows}
+
+
+atc_names = _load_atc_names(str(DB_PATH))
+drugs_by_atc = _load_drugs_by_atc(str(DB_PATH))
+
 atc_codes = sorted(inventory.keys())
-selected = st.selectbox("Select ATC Code", atc_codes)
+atc_options = [f"{code} — {atc_names.get(code, code)}" for code in atc_codes]
+selected_label = st.selectbox("Select ATC Code", atc_options)
+selected = selected_label.split(" — ")[0]   # extract bare code
+
+drug_list = drugs_by_atc.get(selected, [])
+drug_options = ["(All drugs in group)"] + drug_list
+selected_drug = st.selectbox("Select Drug / Brand", drug_options)
+if selected_drug != "(All drugs in group)":
+    st.caption(f"Showing ATC-level demand for the **{atc_names.get(selected, selected)}** group  ·  {selected_drug} is one of {len(drug_list)} medication(s) in this group.")
 
 # ---------------------------------------------------------------------------
 # Fetch history from SQLite

@@ -47,19 +47,19 @@ ATC_CATEGORIES = [
 # Reference Data — Inventory Batches (Phase 8.5 expiry seed data)
 # ---------------------------------------------------------------------------
 # Mock batches chosen to demonstrate all discount tiers in the demo.
-# Dates are relative to the project demo date (March 29, 2026):
-#   LOT-2026-001 : expires Apr  8 2026 ( 10 days) -> Final Week   55% off
-#   LOT-2026-002 : expires Apr 23 2026 ( 25 days) -> Clearance    40% off
-#   LOT-2026-003 : expires May 20 2026 ( 52 days) -> Buy More     15% off
+# Dates are relative to the project demo date (March 30, 2026):
+#   LOT-2026-001 : expires Apr 15 2026 ( 16 days) -> Cannot Dispense (< 30d) -- return to supplier
+#   LOT-2026-002 : expires May 10 2026 ( 41 days) -> Special Offer 25% off   (30-59d)
+#   LOT-2026-003 : expires Jun 15 2026 ( 77 days) -> Early Discount 15% off  (60-90d)
 
 BATCH_SEED = [
     # (atc_code, batch_number, quantity, unit_cost, expiry_date, received_date, notes)
-    ("M01AE", "LOT-2026-001", 300.0, 0.50, "2026-04-08", "2025-10-01",
-     "10 days to expiry -- Final Week tier"),
-    ("R06",   "LOT-2026-002", 400.0, 0.35, "2026-04-23", "2025-10-01",
-     "25 days to expiry -- Clearance tier"),
-    ("N02BA", "LOT-2026-003", 150.0, 0.20, "2026-05-20", "2025-11-01",
-     "52 days to expiry -- Buy More tier"),
+    ("M01AE", "LOT-2026-001", 300.0, 0.50, "2026-04-15", "2025-10-01",
+     "16 days to expiry -- Cannot Dispense, return to supplier"),
+    ("R06",   "LOT-2026-002", 400.0, 0.35, "2026-05-10", "2025-10-01",
+     "41 days to expiry -- Special Offer 25% off"),
+    ("N02BA", "LOT-2026-003", 150.0, 0.20, "2026-06-15", "2025-11-01",
+     "77 days to expiry -- Early Discount 15% off"),
 ]
 
 # ---------------------------------------------------------------------------

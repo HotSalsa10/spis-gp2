@@ -137,9 +137,9 @@ def test_classify_risk_overstock():
 
 def test_classify_risk_uses_constants():
     """Tier thresholds must match the published module constants."""
-    assert TIER_CRITICAL == 3.0
-    assert TIER_LOW == 7.0
-    assert TIER_OK == 30.0
+    assert TIER_CRITICAL == 7.0
+    assert TIER_LOW == 14.0
+    assert TIER_OK == 90.0
 
 
 # ---------------------------------------------------------------------------

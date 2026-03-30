@@ -8,10 +8,10 @@ For each ATC code the module answers two questions:
     2. How many units should be ordered to cover the next 30 days?
 
 Risk tiers are defined by Days-of-Stock (DoS = current_stock / daily_demand):
-    CRITICAL  : DoS < 3   -- likely stockout within 3 days
-    LOW       : 3 <= DoS < 7
-    OK        : 7 <= DoS < 30
-    OVERSTOCK : DoS >= 30
+    CRITICAL  : DoS < 7   -- stockout within a week
+    LOW       : 7 <= DoS < 14
+    OK        : 14 <= DoS < 90
+    OVERSTOCK : DoS >= 90
 
 Order quantity formula:
     order_qty = max(0, forecast_30d + safety_buffer - current_stock)
@@ -43,9 +43,9 @@ from spis.models.forecaster import FEATURE_COLS
 # Risk tier thresholds (Days of Stock)
 # ---------------------------------------------------------------------------
 
-TIER_CRITICAL: float = 3.0   # DoS < 3  -> CRITICAL
-TIER_LOW: float = 7.0         # DoS < 7  -> LOW
-TIER_OK: float = 30.0         # DoS < 30 -> OK  (else OVERSTOCK)
+TIER_CRITICAL: float = 7.0    # DoS < 7  -> CRITICAL
+TIER_LOW: float = 14.0        # DoS < 14 -> LOW
+TIER_OK: float = 90.0         # DoS < 90 -> OK  (else OVERSTOCK)
 
 
 # ---------------------------------------------------------------------------

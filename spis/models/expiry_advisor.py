@@ -6,13 +6,22 @@ Phase 8.5 expiry-aware offer advisor.
 Analyses inventory batches approaching their expiry date and recommends
 discount tiers to recover revenue before stock becomes unsellable.
 
-Discount tier logic (days_to_expiry):
-    > 60 days : no action needed
-    45-60 days: 15% off  -- "Buy More" promotion
-    30-44 days: 25% off  -- "Special Offer"
-    14-29 days: 40% off  -- "Clearance"
-     7-13 days: 55% off  -- "Final Week"
-    < 7 days  : return_to_supplier / write-off
+Discount tier logic — 2-factor (days_to_expiry × risk_ratio):
+    risk_ratio = units_at_risk / quantity  (how much of the batch won't sell)
+
+    > 90 days  : no action needed
+    60-90 days :
+        low  risk (<0.33) -> Monitor        (no discount, watch closely)
+        med  risk (0.33-0.66) -> 10% off    "Early Discount"
+        high risk (>0.66) -> 15% off        "Early Discount"
+    30-59 days :
+        low  risk (<0.33) -> 10% off        "Special Offer"
+        med  risk (0.33-0.66) -> 20% off    "Special Offer"
+        high risk (>0.66) -> 30% off        "Special Offer"
+    < 30 days  : return_to_supplier         "Cannot Dispense"
+                 (< 30 days remaining shelf life: unsafe to dispense to patients
+                  per GCC/international GDP best practice)
+    expired    : write_off
 
 Usage:
     from spis.models.expiry_advisor import assess_all_batches
@@ -25,15 +34,17 @@ import datetime
 from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
-# Discount tier constants (days_to_expiry boundaries)
+# Discount tier constants
 # ---------------------------------------------------------------------------
 
-TIER_BUY_MORE_MAX: int = 60    # > 60d  -> no action
-TIER_BUY_MORE_MIN: int = 45    # 45-60d -> 15% off
-TIER_SPECIAL_MIN: int = 30     # 30-44d -> 25% off
-TIER_CLEARANCE_MIN: int = 14   # 14-29d -> 40% off
-TIER_FINAL_WEEK_MIN: int = 7   # 7-13d  -> 55% off
-                               # < 7d   -> return/write-off
+TIER_NO_ACTION: int = 90    # > 90d  -> no action
+TIER_EARLY_MIN: int = 60    # 60-90d -> "Early Discount" (10% or 15% based on risk)
+TIER_SPECIAL_MIN: int = 30  # 30-59d -> "Special Offer"  (10%, 20%, or 30%)
+                             # < 30d  -> return_to_supplier "Cannot Dispense"
+
+# Risk ratio thresholds (units_at_risk / quantity)
+RISK_LOW: float = 0.33      # < 0.33  -> low risk
+RISK_HIGH: float = 0.66     # > 0.66  -> high risk (between = medium)
 
 # ---------------------------------------------------------------------------
 # ExpiryOffer result object (immutable)
@@ -55,7 +66,7 @@ class ExpiryOffer:
         units_at_risk             : max(0, quantity - forecasted_sales_before_expiry)
         unit_cost                 : Cost per unit (for waste value calculation)
         waste_value               : units_at_risk * unit_cost
-        suggested_discount_pct    : Discount percentage (0, 15, 25, 40, or 55)
+        suggested_discount_pct    : Discount percentage (0, 10, 15, 20, or 30)
         offer_label               : Human-readable tier label
         action                    : Short action string (e.g. "promote", "return")
     """
@@ -79,31 +90,41 @@ class ExpiryOffer:
 # ---------------------------------------------------------------------------
 
 
-def classify_discount(days_to_expiry: int) -> tuple[int, str, str]:
+def classify_discount(
+    days_to_expiry: int,
+    risk_ratio: float = 0.5,
+) -> tuple[int, str, str]:
     """
-    Map days-to-expiry to a discount tier.
+    Map days-to-expiry + risk_ratio to a discount tier.
 
     Args:
         days_to_expiry: Integer days from today to the batch expiry date.
                         Negative values mean the batch has already expired.
+        risk_ratio:     Fraction of the batch that demand won't cover before
+                        expiry (units_at_risk / quantity).  Range [0, 1].
+                        Default 0.5 (medium risk).
 
     Returns:
         (discount_pct, offer_label, action) tuple.
-        discount_pct is one of 0, 15, 25, 40, 55.
+        discount_pct is one of 0, 10, 15, 20, or 30.
     """
     if days_to_expiry < 0:
         return (0, "Expired", "write_off")
-    if days_to_expiry < TIER_FINAL_WEEK_MIN:
-        return (55, "Final Week", "return_to_supplier")
-    if days_to_expiry < TIER_CLEARANCE_MIN:
-        return (55, "Final Week", "promote")
-    if days_to_expiry < TIER_SPECIAL_MIN:
-        return (40, "Clearance", "promote")
-    if days_to_expiry < TIER_BUY_MORE_MIN:
-        return (25, "Special Offer", "promote")
-    if days_to_expiry <= TIER_BUY_MORE_MAX:
-        return (15, "Buy More", "promote")
-    return (0, "OK", "none")
+    if days_to_expiry < TIER_SPECIAL_MIN:        # < 30 days
+        return (0, "Cannot Dispense", "return_to_supplier")
+    if days_to_expiry < TIER_EARLY_MIN:           # 30-59 days  "Special Offer"
+        if risk_ratio < RISK_LOW:
+            return (10, "Special Offer", "promote")
+        if risk_ratio <= RISK_HIGH:
+            return (20, "Special Offer", "promote")
+        return (30, "Special Offer", "promote")
+    if days_to_expiry <= TIER_NO_ACTION:          # 60-90 days  "Early Discount"
+        if risk_ratio < RISK_LOW:
+            return (0, "Monitor", "none")
+        if risk_ratio <= RISK_HIGH:
+            return (10, "Early Discount", "promote")
+        return (15, "Early Discount", "promote")
+    return (0, "OK", "none")                      # > 90 days
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +141,7 @@ def assess_batch(
     Assess a single inventory batch and return an ExpiryOffer if action needed.
 
     Returns None when:
-        - days_to_expiry > 60 (no action needed yet), or
+        - days_to_expiry > 90 (no action needed yet), or
         - units_at_risk == 0 (all stock will be sold before expiry), or
         - days_to_expiry < 0 (already expired — caller decides handling).
 
@@ -140,12 +161,13 @@ def assess_batch(
     days_to_expiry = (expiry - today).days
 
     # No action needed: too far out or already expired
-    if days_to_expiry > TIER_BUY_MORE_MAX or days_to_expiry < 0:
+    if days_to_expiry > TIER_NO_ACTION or days_to_expiry < 0:
         return None
 
     # Forecast how many units will be sold in the remaining window
+    quantity = float(batch["quantity"])
     forecasted_sales = max(0.0, daily_demand * days_to_expiry)
-    units_at_risk = max(0.0, float(batch["quantity"]) - forecasted_sales)
+    units_at_risk = max(0.0, quantity - forecasted_sales)
 
     # Skip batches with zero risk (demand covers full stock before expiry)
     if units_at_risk == 0.0:
@@ -153,12 +175,13 @@ def assess_batch(
 
     unit_cost = float(batch["unit_cost"])
     waste_value = units_at_risk * unit_cost
-    discount_pct, offer_label, action = classify_discount(days_to_expiry)
+    risk_ratio = units_at_risk / quantity if quantity > 0 else 0.0
+    discount_pct, offer_label, action = classify_discount(days_to_expiry, risk_ratio)
 
     return ExpiryOffer(
         atc_code=batch["atc_code"],
         batch_number=batch["batch_number"],
-        quantity=float(batch["quantity"]),
+        quantity=quantity,
         expiry_date=batch["expiry_date"],
         days_to_expiry=days_to_expiry,
         forecasted_sales_before_expiry=forecasted_sales,
