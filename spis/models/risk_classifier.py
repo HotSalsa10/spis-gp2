@@ -190,12 +190,13 @@ def forecast_30_days(
     """
     Forecast total demand over `days` days starting from `start_date`.
 
-    Strategy:
+    Strategy (recursive):
         - Calendar features (day_of_week, month, etc.) are computed from actual
           future dates, capturing real seasonal / holiday effects.
-        - Lag and rolling features are held constant from the seed_row (last
-          known feature values). This is a conservative assumption: no feedback
-          loop, but it avoids leaking future information.
+        - Each day's prediction is appended to a rolling history buffer; lag,
+          rolling-window, and EMA features are recomputed from that buffer
+          before the next prediction, so forecasts can vary day-to-day rather
+          than converging to a flat line.
         - Predictions are clipped to >= 0 before summing.
 
     Args:
@@ -229,14 +230,65 @@ def forecast_30_days(
         years=range(start_date.year, start_date.year + 2)
     )
 
-    # Extract static (lag/rolling/EMA) values from the seed row
+    # Initialise rolling history buffer with seed values.
+    # We keep the last 365 actual values so lag/rolling/EMA features can be
+    # recomputed from real data as each predicted value is appended.
     seed = seed_row.iloc[0]
+    _alpha7  = 2 / (7  + 1)
+    _alpha14 = 2 / (14 + 1)
+    _alpha28 = 2 / (28 + 1)
+
+    # Seed the history buffer from available lag values (oldest first).
+    # lag_365 is the oldest reliable anchor; fill forward with lag_28/14/7/1.
+    history: list[float] = [float(seed.get("lag_365", seed["lag_1"]))] * (365 - 28)
+    history += [float(seed.get("lag_28", seed["lag_1"]))] * (28 - 14)
+    history += [float(seed.get("lag_14", seed["lag_1"]))] * (14 - 7)
+    history += [float(seed.get("lag_7",  seed["lag_1"]))] * (7  - 3)
+    history += [
+        float(seed.get("lag_3", seed["lag_1"])),
+        float(seed.get("lag_2", seed["lag_1"])),
+        float(seed["lag_1"]),
+    ]
+
+    # Seed EMA values from the last known row
+    ema7  = float(seed.get("ema_7",  seed["lag_1"]))
+    ema14 = float(seed.get("ema_14", seed["lag_1"]))
+    ema28 = float(seed.get("ema_28", seed["lag_1"]))
+
+    trend_counter = float(seed.get("trend_counter", len(history)))
 
     daily_preds: list[float] = []
     for i in range(days):
         d = start_date + pd.Timedelta(days=i)
         month = d.month
         dom = d.day
+
+        # --- Lag features ---
+        lag_1   = history[-1]
+        lag_2   = history[-2]
+        lag_3   = history[-3]
+        lag_7   = history[-7]
+        lag_14  = history[-14]
+        lag_28  = history[-28]
+        lag_365 = history[-365]
+
+        # --- Rolling statistics ---
+        w7  = history[-7:]
+        w28 = history[-28:]
+        rolling_mean_7   = float(np.mean(w7))
+        rolling_std_7    = float(np.std(w7,  ddof=0))
+        rolling_min_7    = float(np.min(w7))
+        rolling_max_7    = float(np.max(w7))
+        rolling_mean_14  = float(np.mean(history[-14:]))
+        rolling_mean_28  = float(np.mean(w28))
+        rolling_std_28   = float(np.std(w28, ddof=0))
+        rolling_mean_90  = float(np.mean(history[-90:]))
+        rolling_mean_365 = float(np.mean(history[-365:]))
+
+        # --- Derived ---
+        lag_ratio_7   = lag_1 / lag_7  if lag_7  != 0 else 1.0
+        rolling_range_7 = rolling_max_7 - rolling_min_7
+        ema_ratio     = ema7 / ema28 if ema28 != 0 else 1.0
 
         # Calendar features computed from the actual future date
         calendar_vals = {
@@ -261,14 +313,34 @@ def forecast_30_days(
             ),
         }
 
-        # Build feature row: seed values for lag/rolling, calendar from above
-        row_vals = {col: float(seed[col]) if col in seed.index else 0.0
-                    for col in FEATURE_COLS}
-        row_vals.update(calendar_vals)
+        row_vals = {
+            **calendar_vals,
+            "lag_1": lag_1, "lag_2": lag_2, "lag_3": lag_3,
+            "lag_7": lag_7, "lag_14": lag_14, "lag_28": lag_28,
+            "lag_365": lag_365,
+            "rolling_mean_7": rolling_mean_7, "rolling_std_7": rolling_std_7,
+            "rolling_min_7": rolling_min_7,   "rolling_max_7": rolling_max_7,
+            "rolling_mean_14": rolling_mean_14,
+            "rolling_mean_28": rolling_mean_28, "rolling_std_28": rolling_std_28,
+            "rolling_mean_90": rolling_mean_90,
+            "rolling_mean_365": rolling_mean_365,
+            "ema_7": ema7, "ema_14": ema14, "ema_28": ema28,
+            "lag_ratio_7": lag_ratio_7,
+            "trend_counter": trend_counter,
+            "rolling_range_7": rolling_range_7,
+            "ema_ratio": ema_ratio,
+        }
 
         X = pd.DataFrame([row_vals])[FEATURE_COLS]
         pred = max(0.0, float(model.predict(X)[0]))
         daily_preds.append(pred)
+
+        # --- Update state for next iteration ---
+        history.append(pred)
+        ema7  = ema7  + _alpha7  * (pred - ema7)
+        ema14 = ema14 + _alpha14 * (pred - ema14)
+        ema28 = ema28 + _alpha28 * (pred - ema28)
+        trend_counter += 1
 
     if return_daily:
         return daily_preds
