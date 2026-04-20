@@ -132,13 +132,13 @@ def train_xgboost(X_train: pd.DataFrame, y_train: pd.Series) -> XGBRegressor:
         The best estimator from the grid search.
     """
     param_grid = {
-        "n_estimators": [200, 500],
-        "max_depth": [4, 6],
-        "learning_rate": [0.05, 0.1],
-        "subsample": [0.8, 1.0],
+        "n_estimators":     [500, 800],
+        "max_depth":        [6, 8],
+        "learning_rate":    [0.03, 0.05],
+        "subsample":        [0.8, 1.0],
         "colsample_bytree": [0.8, 1.0],
         "min_child_weight": [1, 5],
-        "reg_alpha": [0, 0.1],
+        "reg_alpha":        [0, 0.1],
     }
 
     xgb = XGBRegressor(

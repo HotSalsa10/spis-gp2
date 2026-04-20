@@ -1,15 +1,16 @@
 """
 spis/dashboard/pages/1_History_Forecast.py
 -------------------------------------------
-Page 1 — 90-day sales history + 30-day demand forecast chart.
+Page 1 — Configurable sales history + 30-day demand forecast chart.
 
 Displays an interactive Plotly line chart for the selected ATC code:
-  - Solid line  : last 90 days of actual daily sales
+  - Solid line  : last N days of actual daily sales (slider-controlled)
   - Dashed line : 30-day forecast from the XGBoost model
 """
 
 import sqlite3
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -17,19 +18,27 @@ import streamlit as st
 from spis.dashboard._shared import (
     DB_PATH,
     FEATURES_CSV,
+    ROOT,
     check_required_files,
+    inject_css,
     load_artifacts,
+    load_atc_names,
+    load_drugs,
     run_assessment,
 )
+from spis.models.forecaster import FEATURE_COLS
 from spis.models.risk_classifier import forecast_30_days
+
+TEST_CSV = ROOT / "data" / "processed" / "test.csv"
 
 # ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
 
 st.set_page_config(page_title="History & Forecast — SPIS", layout="wide")
+inject_css()
 st.title("History & Forecast")
-st.caption("90-day actual sales (solid) · 30-day XGBoost forecast (dashed)")
+st.caption("Actual sales history (solid line)  ·  30-day XGBoost forecast (dashed line)")
 
 check_required_files()
 
@@ -41,41 +50,32 @@ with st.spinner("Loading model ..."):
     model, encoder, inventory = load_artifacts()
     results = run_assessment(model, encoder, inventory)
 
-@st.cache_data
-def _load_drugs_by_atc(db_path: str) -> dict[str, list[str]]:
-    """Return dict: atc_code -> sorted list of drug names."""
-    with sqlite3.connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT atc_code, drug_name FROM drugs ORDER BY atc_code, drug_name"
-        ).fetchall()
-    result: dict[str, list[str]] = {}
-    for atc, name in rows:
-        result.setdefault(atc, []).append(name)
-    return result
+atc_names = load_atc_names(str(DB_PATH))
+drugs_df   = load_drugs(str(DB_PATH))
 
-
-@st.cache_data
-def _load_atc_names(db_path: str) -> dict[str, str]:
-    with sqlite3.connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT atc_code, atc_name FROM atc_categories"
-        ).fetchall()
-    return {code: name for code, name in rows}
-
-
-atc_names = _load_atc_names(str(DB_PATH))
-drugs_by_atc = _load_drugs_by_atc(str(DB_PATH))
+# Build drug name lookup: atc_code -> sorted list of drug names
+drugs_by_atc: dict[str, list[str]] = {}
+for _, row in drugs_df.iterrows():
+    drugs_by_atc.setdefault(row["atc_code"], []).append(row["drug_name"])
 
 atc_codes = sorted(inventory.keys())
 atc_options = [f"{code} — {atc_names.get(code, code)}" for code in atc_codes]
-selected_label = st.selectbox("Select ATC Code", atc_options)
-selected = selected_label.split(" — ")[0]   # extract bare code
+
+col_sel, col_slider = st.columns([3, 2])
+with col_sel:
+    selected_label = st.selectbox("Select ATC Code", atc_options)
+    selected = selected_label.split(" — ")[0]
+with col_slider:
+    n_days = st.select_slider(
+        "History window",
+        options=[30, 60, 90, 180],
+        value=90,
+    )
 
 drug_list = drugs_by_atc.get(selected, [])
-drug_options = ["(All drugs in group)"] + drug_list
-selected_drug = st.selectbox("Select Drug / Brand", drug_options)
-if selected_drug != "(All drugs in group)":
-    st.caption(f"Showing ATC-level demand for the **{atc_names.get(selected, selected)}** group  ·  {selected_drug} is one of {len(drug_list)} medication(s) in this group.")
+if drug_list:
+    with st.expander(f"Medications in this group ({len(drug_list)})"):
+        st.write(", ".join(sorted(drug_list)))
 
 # ---------------------------------------------------------------------------
 # Fetch history from SQLite
@@ -123,11 +123,59 @@ def _load_forecast(atc_code: str) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Bootstrap prediction interval (P10–P90)
+# ---------------------------------------------------------------------------
+
+
+@st.cache_data(ttl=600)
+def _compute_residuals(_model, _encoder, atc_code: str) -> np.ndarray:
+    """Return test-set residuals (actual − predicted) for one ATC code."""
+    if not TEST_CSV.exists():
+        return np.array([])
+    df = pd.read_csv(str(TEST_CSV))
+    df = df[df["atc_code"] == atc_code].copy()
+    if df.empty:
+        return np.array([])
+    df["atc_encoded"] = _encoder.transform(df["atc_code"])
+    X = df[FEATURE_COLS].dropna()
+    if X.empty:
+        return np.array([])
+    y_true = df.loc[X.index, "quantity"].values.astype(float)
+    y_pred = _model.predict(X).astype(float)
+    return y_true - y_pred
+
+
+def _bootstrap_interval(
+    point_forecast: list[float],
+    residuals: np.ndarray,
+    n_boot: int = 500,
+    p_lo: float = 10.0,
+    p_hi: float = 90.0,
+    rng_seed: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Bootstrap P10/P90 band by resampling test residuals onto the point forecast."""
+    fc = np.array(point_forecast, dtype=float)
+    if len(residuals) < 5:
+        return fc, fc
+    rng = np.random.default_rng(rng_seed)
+    n_days = len(fc)
+    sampled = rng.choice(residuals, size=(n_boot, n_days), replace=True)
+    sims = np.clip(fc[None, :] + sampled, 0.0, None)
+    return np.percentile(sims, p_lo, axis=0), np.percentile(sims, p_hi, axis=0)
+
+
+# ---------------------------------------------------------------------------
 # Plot
 # ---------------------------------------------------------------------------
 
-history_df = _load_history(selected)
+history_df = _load_history(selected, n_days)
 forecast_df = _load_forecast(selected)
+
+residuals = _compute_residuals(model, encoder, selected)
+lower, upper = _bootstrap_interval(
+    forecast_df["quantity"].tolist() if not forecast_df.empty else [],
+    residuals,
+)
 
 fig = go.Figure()
 
@@ -136,11 +184,30 @@ if not history_df.empty:
         x=history_df["sale_date"],
         y=history_df["quantity"],
         mode="lines",
-        name="Actual (90d)",
+        name=f"Actual ({n_days}d)",
         line={"color": "#1f77b4", "width": 2},
     ))
 
 if not forecast_df.empty:
+    # Band: lower boundary (invisible) then upper with fill='tonexty'
+    fig.add_trace(go.Scatter(
+        x=forecast_df["date"],
+        y=lower,
+        mode="lines",
+        line={"width": 0},
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatter(
+        x=forecast_df["date"],
+        y=upper,
+        mode="lines",
+        fill="tonexty",
+        fillcolor="rgba(255,127,14,0.18)",
+        line={"width": 0},
+        name="P10–P90 interval",
+        hovertemplate="Upper P90: %{y:.1f}<extra></extra>",
+    ))
     fig.add_trace(go.Scatter(
         x=forecast_df["date"],
         y=forecast_df["quantity"],
@@ -150,9 +217,14 @@ if not forecast_df.empty:
     ))
 
 fig.update_layout(
+    plot_bgcolor="#161b27",
+    paper_bgcolor="#161b27",
+    font={"color": "#a8c0dd"},
     xaxis_title="Date",
     yaxis_title="Units Sold / Forecast",
-    legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
+    xaxis={"gridcolor": "#1e2d45"},
+    yaxis={"gridcolor": "#1e2d45", "zeroline": False},
+    legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "bgcolor": "rgba(0,0,0,0)"},
     hovermode="x unified",
     height=450,
 )

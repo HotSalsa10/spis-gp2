@@ -180,6 +180,7 @@ def init_db(db_path: str | Path) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute("PRAGMA foreign_keys = ON;")
         _create_tables(conn)
+        _migrate_batches_columns(conn)
         _seed_reference_data(conn)
         conn.commit()
 
@@ -243,19 +244,32 @@ def _create_tables(conn: sqlite3.Connection) -> None:
 
         -- Per-batch stock with expiry date and unit cost (Phase 8.5)
         CREATE TABLE IF NOT EXISTS inventory_batches (
-            batch_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            atc_code      TEXT    NOT NULL REFERENCES atc_categories(atc_code),
-            batch_number  TEXT    NOT NULL,
-            quantity      REAL    NOT NULL CHECK (quantity >= 0),
-            unit_cost     REAL    NOT NULL CHECK (unit_cost >= 0),
-            expiry_date   TEXT    NOT NULL,
-            received_date TEXT    NOT NULL DEFAULT CURRENT_DATE,
-            notes         TEXT
+            batch_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            atc_code          TEXT    NOT NULL REFERENCES atc_categories(atc_code),
+            batch_number      TEXT    NOT NULL,
+            quantity          REAL    NOT NULL CHECK (quantity >= 0),
+            unit_cost         REAL    NOT NULL CHECK (unit_cost >= 0),
+            expiry_date       TEXT    NOT NULL,
+            received_date     TEXT    NOT NULL DEFAULT CURRENT_DATE,
+            notes             TEXT,
+            applied_discount  REAL,   -- pharmacist override; NULL means use suggested
+            returned          INTEGER NOT NULL DEFAULT 0 CHECK (returned IN (0, 1))
         );
 
         CREATE INDEX IF NOT EXISTS idx_batches_atc_expiry
             ON inventory_batches (atc_code, expiry_date);
     """)
+
+
+def _migrate_batches_columns(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after initial schema deployment (idempotent)."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(inventory_batches)")}
+    if "applied_discount" not in existing:
+        conn.execute("ALTER TABLE inventory_batches ADD COLUMN applied_discount REAL")
+    if "returned" not in existing:
+        conn.execute(
+            "ALTER TABLE inventory_batches ADD COLUMN returned INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 def _seed_reference_data(conn: sqlite3.Connection) -> None:
@@ -329,15 +343,52 @@ def load_batches(db_path: str | Path) -> list[dict]:
 
     Returns:
         List of dicts with keys: batch_id, atc_code, batch_number, quantity,
-        unit_cost, expiry_date (ISO string), received_date, notes.
+        unit_cost, expiry_date (ISO string), received_date, notes,
+        applied_discount (float|None), returned (int 0/1).
     """
     db_path = Path(db_path)
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """SELECT batch_id, atc_code, batch_number, quantity,
-                      unit_cost, expiry_date, received_date, notes
+                      unit_cost, expiry_date, received_date, notes,
+                      applied_discount, returned
                FROM inventory_batches
                ORDER BY expiry_date"""
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def save_batch_overrides(
+    db_path: str | Path,
+    overrides: list[dict],
+) -> None:
+    """
+    Persist pharmacist overrides for one or more batches.
+
+    Each dict in *overrides* must have:
+        batch_id         (int)
+        applied_discount (float|None)
+        returned         (bool/int)  — if True, quantity is zeroed out
+
+    Args:
+        db_path  : Path to the SQLite database.
+        overrides: List of override dicts (one per edited batch).
+    """
+    db_path = Path(db_path)
+    with sqlite3.connect(db_path) as conn:
+        for ov in overrides:
+            conn.execute(
+                """UPDATE inventory_batches
+                   SET applied_discount = ?,
+                       returned         = ?,
+                       quantity         = CASE WHEN ? THEN 0 ELSE quantity END
+                   WHERE batch_id = ?""",
+                (
+                    ov.get("applied_discount"),
+                    1 if ov.get("returned") else 0,
+                    1 if ov.get("returned") else 0,
+                    ov["batch_id"],
+                ),
+            )
+        conn.commit()

@@ -174,26 +174,26 @@ RESULTS
   --------------------------------------------------
   Naive (lag_1)       4.23      7.23      98.42
   Moving Avg (7d)     2.89      4.98      67.83
-  XGBoost             1.07      2.49      18.80
+  XGBoost             1.06      2.29      20.56
 
   MAE  = Average prediction error (lower is better)
   RMSE = Like MAE but penalises big misses more
   MAPE = Average error as a percentage
 
-  XGBoost achieves MAE 1.07, beating the 7-day moving average by 63%.
+  XGBoost achieves MAE 1.06, beating the 7-day moving average by 63%.
 
 TOP FEATURES (what the model relies on most)
-  ema_14            0.41   (14-day exponential moving average)
-  ema_7             0.36   (7-day exponential moving average)
-  ema_28            0.04   (28-day exponential moving average)
+  ema_14            0.48   (14-day exponential moving average)
+  ema_7             0.27   (7-day exponential moving average)
+  rolling_mean_14   0.03   (14-day rolling average)
 
 BEST HYPERPARAMETERS
-  n_estimators:      500
+  n_estimators:      800
   max_depth:         6
-  learning_rate:     0.1
+  learning_rate:     0.03
   subsample:         0.8
   colsample_bytree:  0.8
-  min_child_weight:  5
+  min_child_weight:  1
   reg_alpha:         0
 
 SAVED ARTIFACTS (models/ -- git-ignored)
@@ -658,7 +658,7 @@ PROJECT COMPLETE
   All phases delivered:
     Phase 1    -- Repo setup, SQLite schema, drug catalog, data ingestion
     Phase 2    -- Feature engineering pipeline (35 features + ATC encoding)
-    Phase 3    -- XGBoost forecaster (MAE 1.07 vs naive 4.23)
+    Phase 3    -- XGBoost forecaster (MAE 1.06 vs naive 4.23, RMSE 2.29)
     Phase 4    -- Risk classification and order recommendations
     Phase 5    -- Flask REST API (3 endpoints)
     Phase 6    -- Streamlit dashboard (4 sections, 57 drugs shown)
