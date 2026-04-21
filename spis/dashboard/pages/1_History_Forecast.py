@@ -40,7 +40,7 @@ inject_css()
 st.title("History & Forecast")
 st.caption(
     "Actual sales history (solid line)  ·  30-day XGBoost forecast (dashed line)  ·  "
-    "Forecast is projected from the end of the training dataset (Oct 2019)"
+    "Sales data covers Jan 2014 – Oct 2019  ·  Forecast window starts Oct 2019"
 )
 
 check_required_files()

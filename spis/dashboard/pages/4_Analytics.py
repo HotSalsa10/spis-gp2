@@ -35,7 +35,10 @@ from spis.dashboard._shared import (
 st.set_page_config(page_title="Analytics — SPIS", layout="wide")
 inject_css()
 st.title("Analytics")
-st.caption("XGBoost feature importance  ·  ABC demand analysis")
+st.caption(
+    "XGBoost feature importance  ·  ABC demand analysis  ·  "
+    "All forecasts based on sales data through Oct 2019"
+)
 
 check_required_files()
 

@@ -57,7 +57,8 @@ st.set_page_config(page_title="Expiry Offers — SPIS", layout="wide")
 inject_css()
 st.title("Expiry-Aware Discount Offers")
 st.caption(
-    "Batches within 90 days of expiry are surfaced here. "
+    "Batches within 90 days of expiry are surfaced here  ·  "
+    "Demand forecasts are based on sales data through Oct 2019  ·  "
     "Batches under 30 days must be returned to supplier — they cannot be dispensed to patients."
 )
 
@@ -89,15 +90,16 @@ atc_info = _load_atc_drug_info(str(DB_PATH))
 total_waste = sum(o.waste_value for o in offers)
 total_at_risk = sum(o.units_at_risk for o in offers)
 
-# Projected recovery = sum of (waste_value * applied_discount / suggested_discount)
-# simplified: applied_discount fraction of waste_value saved
 def _projected_recovery(offers_list, batches_list) -> float:
+    """Revenue recovered by selling at-risk units at a discounted price.
+    Recovery = units_at_risk * unit_cost * (1 - discount/100).
+    Without a discount a unit at risk becomes waste; any sale price > 0 is recovery.
+    """
     discount_map = {b["batch_number"]: b["applied_discount"] for b in batches_list}
     total = 0.0
     for o in offers_list:
-        saved = discount_map.get(o.batch_number, o.suggested_discount_pct)
-        if saved and o.suggested_discount_pct:
-            total += o.waste_value * (saved / 100)
+        discount_pct = discount_map.get(o.batch_number, o.suggested_discount_pct) or 0.0
+        total += o.units_at_risk * o.unit_cost * (1.0 - discount_pct / 100.0)
     return total
 
 proj_recovery = _projected_recovery(offers, batches)

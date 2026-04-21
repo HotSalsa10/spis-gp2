@@ -225,8 +225,11 @@ def forecast_30_days(
 
     atc_encoded = int(encoder.transform([atc_code])[0])
 
-    # Pre-load Turkish public holidays for the forecast window
-    tr_holidays = holidays.Turkey(
+    # Pre-load Saudi public holidays for the forecast window.
+    # Note: the underlying Kaggle sales dataset originates from Turkey, so
+    # holiday patterns in the training data reflect Turkish calendars.
+    # We use SaudiArabia here to align with the pharmacy's operational context.
+    tr_holidays = holidays.SaudiArabia(
         years=range(start_date.year, start_date.year + 2)
     )
 

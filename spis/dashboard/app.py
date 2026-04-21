@@ -72,6 +72,11 @@ with st.spinner("Running risk assessment …"):
     model, encoder, inventory = load_artifacts()
     results = run_assessment(model, encoder, inventory)
 
+st.caption(
+    "Forecasts are based on historical sales data through **Oct 2019**  ·  "
+    "Risk assessment refreshed every 5 min"
+)
+
 tier_counts = Counter(ra.risk_tier for ra in results)
 atc_names   = load_atc_names(str(DB_PATH))
 
