@@ -213,11 +213,26 @@ def load_csv_to_db(csv_path: Path, granularity: str, conn: sqlite3.Connection) -
 # Main pipeline
 # ---------------------------------------------------------------------------
 def main() -> None:
-    # 1. Download from Kaggle
-    cache_dir = download_dataset()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--from-raw",
+        action="store_true",
+        help="Skip Kaggle download and use the CSVs already in data/raw/",
+    )
+    args = parser.parse_args()
 
-    # 2. Copy raw CSVs into data/raw/
-    copy_to_raw(cache_dir)
+    if args.from_raw:
+        missing = [f for f in GRANULARITY_MAP if not (RAW_DIR / f).exists()]
+        if missing:
+            print(f"[ingest] ERROR: Missing files in data/raw/: {missing}")
+            sys.exit(1)
+        print("[ingest] --from-raw: skipping Kaggle download, using data/raw/ directly.")
+    else:
+        # 1. Download from Kaggle
+        cache_dir = download_dataset()
+        # 2. Copy raw CSVs into data/raw/
+        copy_to_raw(cache_dir)
 
     # 3. Initialise schema + seed ATC / drug reference data
     print()
