@@ -38,7 +38,10 @@ TEST_CSV = ROOT / "data" / "processed" / "test.csv"
 st.set_page_config(page_title="History & Forecast — SPIS", layout="wide")
 inject_css()
 st.title("History & Forecast")
-st.caption("Actual sales history (solid line)  ·  30-day XGBoost forecast (dashed line)")
+st.caption(
+    "Actual sales history (solid line)  ·  30-day XGBoost forecast (dashed line)  ·  "
+    "Forecast is projected from the end of the training dataset (Oct 2019)"
+)
 
 check_required_files()
 

@@ -10,7 +10,7 @@ All changes are appended to data/stock_audit.csv for traceability.
 """
 
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
@@ -73,10 +73,10 @@ with st.form("stock_update_form"):
     st.subheader("Current Stock Levels")
     st.caption("Enter new values — the **Change** column updates after you submit.")
 
-    col_atc, col_input, col_delta = st.columns([2, 3, 2])
+    col_atc, col_input, col_prev = st.columns([2, 3, 2])
     col_atc.markdown("**ATC Code**")
     col_input.markdown("**New Stock (units)**")
-    col_delta.markdown("**Change**")
+    col_prev.markdown("**Previous**")
 
     new_values: dict[str, float] = {}
     for atc_code in sorted(inventory.keys()):
@@ -96,12 +96,7 @@ with st.form("stock_update_form"):
             key=f"stock_{atc_code}",
         )
         new_values[atc_code] = new_val
-        delta = new_val - current
-        if abs(delta) > 0.001:
-            sign = "+" if delta > 0 else ""
-            c3.markdown(f"**{sign}{delta:.1f}**")
-        else:
-            c3.markdown("—")
+        c3.markdown(f"{current:.1f}")
 
     submitted = st.form_submit_button("Save All Changes", type="primary")
 
@@ -123,13 +118,14 @@ if submitted:
         for atc_code, new_stock in changed.items():
             try:
                 update_stock(DB_PATH, atc_code, new_stock)
+                inventory[atc_code] = new_stock  # keep in-memory dict in sync
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{atc_code}: {exc}")
 
         if errors:
             st.error("Some updates failed:\n" + "\n".join(errors))
         else:
-            now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             _append_audit([
                 {
                     "timestamp": now,

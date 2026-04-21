@@ -12,13 +12,12 @@ import json
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 # ABC classification cutoffs (cumulative demand %)
 ABC_A_CUTOFF = 80
 ABC_B_CUTOFF = 95
-
-import plotly.graph_objects as go
 
 from spis.dashboard._shared import (
     FEATURES_CSV,
@@ -130,9 +129,10 @@ st.divider()
 
 st.subheader("ABC Demand Analysis")
 st.caption(
-    f"A = codes driving the first {ABC_A_CUTOFF}% of demand  "
-    f"B = up to {ABC_B_CUTOFF}%  "
-    "C = remaining"
+    f"A = codes driving the first {ABC_A_CUTOFF}% of demand  ·  "
+    f"B = up to {ABC_B_CUTOFF}%  ·  "
+    "C = remaining  ·  "
+    "Based on 30-day XGBoost forecasts (refreshed every 5 min)"
 )
 
 with st.spinner("Loading risk assessment ..."):

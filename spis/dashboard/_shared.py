@@ -246,11 +246,11 @@ def load_artifacts():
 
 
 @st.cache_data(ttl=300)
-def run_assessment(_model, _encoder, inventory):
+def run_assessment(_model, _encoder, _inventory):
     """Run risk assessment (re-evaluated at most every 5 minutes)."""
     return assess_from_features(
         features_csv=FEATURES_CSV,
-        inventory=inventory,
+        inventory=_inventory,
         model=_model,
         encoder=_encoder,
     )

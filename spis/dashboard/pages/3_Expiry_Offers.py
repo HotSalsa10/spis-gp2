@@ -92,12 +92,10 @@ total_at_risk = sum(o.units_at_risk for o in offers)
 # Projected recovery = sum of (waste_value * applied_discount / suggested_discount)
 # simplified: applied_discount fraction of waste_value saved
 def _projected_recovery(offers_list, batches_list) -> float:
+    discount_map = {b["batch_number"]: b["applied_discount"] for b in batches_list}
     total = 0.0
     for o in offers_list:
-        saved = next(
-            (b["applied_discount"] for b in batches_list if b["batch_number"] == o.batch_number),
-            o.suggested_discount_pct,
-        )
+        saved = discount_map.get(o.batch_number, o.suggested_discount_pct)
         if saved and o.suggested_discount_pct:
             total += o.waste_value * (saved / 100)
     return total
@@ -142,9 +140,10 @@ def _gantt_chart(filtered_offers):
             expiry = date.fromisoformat(str(o.expiry_date))
         except (ValueError, TypeError):
             continue
+        days_left = max(0, (expiry - today).days)
         fig.add_trace(go.Bar(
             orientation="h",
-            x=[(expiry - today).days],
+            x=[days_left],
             y=[o.batch_number],
             base=[0],
             marker_color=color,
@@ -290,22 +289,23 @@ def _render_offers_section(filtered_offers, tab_key: str):
 if not offers:
     st.success("No batches require action in the next 90 days.")
 else:
-    urgent_offers   = [o for o in offers if o.days_to_expiry < 30]
-    upcoming_offers = [o for o in offers if 30 <= o.days_to_expiry <= 90]
-
-    tab_all, tab_urgent, tab_upcoming = st.tabs(
-        ["All", "Urgent  (<30 days)", "Upcoming  (30–90 days)"]
+    filter_opt = st.radio(
+        "Show",
+        ["All", "Urgent  (<30 days)", "Upcoming  (30–90 days)"],
+        horizontal=True,
+        label_visibility="collapsed",
     )
 
-    with tab_all:
-        _render_offers_section(offers, "all")
-    with tab_urgent:
-        if urgent_offers:
-            _render_offers_section(urgent_offers, "urgent")
-        else:
+    if filter_opt == "Urgent  (<30 days)":
+        filtered_offers = [o for o in offers if o.days_to_expiry < 30]
+        if not filtered_offers:
             st.info("No batches expiring within 30 days.")
-    with tab_upcoming:
-        if upcoming_offers:
-            _render_offers_section(upcoming_offers, "upcoming")
-        else:
+    elif filter_opt == "Upcoming  (30–90 days)":
+        filtered_offers = [o for o in offers if 30 <= o.days_to_expiry <= 90]
+        if not filtered_offers:
             st.info("No batches in the 30–90 day window.")
+    else:
+        filtered_offers = offers
+
+    if filtered_offers:
+        _render_offers_section(filtered_offers, "main")
