@@ -22,29 +22,6 @@
 
 ---
 
-## 8. Manage Catalog (add drug + add ATC)  [0.5 day]  Rating 7/10
-
-**Why:** proves the pharmacy-agnostic scalability story is real, not academic.
-
-**Approach:**
-1. New page `spis/dashboard/pages/7_Manage_Catalog.py`:
-   - Section A: read-only table of existing ATC categories with drug counts.
-   - Section B: form "Add Drug" — name, ATC code (dropdown of existing), unit, is_critical.
-   - Section C: form "Add ATC Code" — calls existing `register_atc.py` logic via import.
-     Shows clear warning: *"After registering, upload sales history (`scripts/ingest_data.py`)
-     and retrain (`scripts/train_model.py`). The forecaster cannot predict for new ATC codes
-     until both steps are complete."*
-2. Wrap `scripts/register_atc.py` core logic into `spis/data/catalog.py:add_atc_code(...)`
-   and `spis/data/catalog.py:add_drug(...)` so both CLI and UI share one path.
-
-**Files:** `spis/data/catalog.py` (new), `spis/dashboard/pages/7_Manage_Catalog.py` (new),
-`scripts/register_atc.py` (refactor to use new helpers), `tests/test_catalog.py` (new).
-**Tests:** 5+ tests — add_drug happy path, duplicate name rejection, unknown ATC rejection,
-add_atc_code success, idempotent re-registration.
-**Done when:** demo can add "Naproxen 500" under M01AE without touching code.
-
----
-
 ## 9. Suppliers + Purchase Order PDF  [1 day]  Rating 8/10
 
 **Why:** closes the loop — turns model recommendations into a sendable document.
@@ -123,5 +100,5 @@ credibility and pulls scope outside "inventory system." Add a paragraph in
 
 ## Status snapshot
 
-- Total items pending: 3 (items 1, 2, 3, 4, 5, 6, 7 done; refill reminders deferred, not counted)
-- Last updated: 2026-05-06
+- Total items pending: 2 (items 1-8 done; refill reminders deferred, not counted)
+- Last updated: 2026-05-07

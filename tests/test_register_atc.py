@@ -1,23 +1,14 @@
 """
 tests/test_register_atc.py
 ---------------------------
-Unit tests for helper functions in scripts/register_atc.py.
-
-Covers _infer_levels() — the pure function that derives WHO ATC level codes
-from a full ATC code string.  The main() entrypoint is a CLI wrapper and is
-not tested here.
+Unit tests for _infer_levels() -- the pure function that derives WHO ATC
+level codes from a full ATC code string.  Moved to spis.data.catalog in
+Phase 9 Item 8 (shared by CLI and dashboard).
 """
-
-import sys
-from pathlib import Path
 
 import pytest
 
-# Make scripts/ importable without installing it as a package.
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
-sys.path.insert(0, str(SCRIPTS_DIR))
-
-from register_atc import _infer_levels  # noqa: E402
+from spis.data.catalog import _infer_levels
 
 
 # ---------------------------------------------------------------------------

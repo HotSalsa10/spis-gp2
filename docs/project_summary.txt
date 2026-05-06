@@ -771,14 +771,31 @@ TEST SUITE
     - requirements.txt: added statsmodels>=0.14.
     - 5 tests in tests/test_decomposition.py (all pass).
 
+  Item 8 -- Manage Catalog (add drug + add ATC)
+    - New module: spis/data/catalog.py
+        _infer_levels(code) -> (level1, level2): moved from register_atc.py.
+        add_atc_code(db_path, code, name, system, level1, level2, initial_stock)
+          -> bool: inserts into atc_categories + atc_inventory; returns True if
+          newly inserted, False if already existed (idempotent).
+        add_drug(db_path, drug_name, atc_code, unit, is_critical): inserts a
+          drug; raises ValueError on empty name, duplicate name, or unknown ATC.
+        list_atc_codes(db_path) -> list[dict]: code/name/system/drug_count/stock.
+        list_drugs(db_path) -> list[dict]: drug_id/name/atc_code/atc_name/unit/critical.
+    - scripts/register_atc.py refactored: _infer_levels removed; main() now
+        calls catalog.add_atc_code() instead of doing direct DB writes.
+    - New page: spis/dashboard/pages/7_Manage_Catalog.py
+        Section A: read-only ATC categories table (code, name, system, drug count, stock).
+        Section B: "Add Drug" form (name, ATC dropdown, unit, is_critical checkbox).
+        Section C: "Add ATC Code" form with retraining warning banner.
+    - 10 tests in tests/test_catalog.py (all pass).
+
 CURRENCY
   All monetary values displayed in SAR (Saudi Riyals).
 
 TEST SUITE
-  144 tests total, all passing.
+  154 tests total, all passing.
 
 ITEMS PENDING (see PHASE9.md for full details)
-  8. Manage Catalog (add drug + add ATC)
   9. Suppliers + Purchase Order PDF
   10. Inventory turnover ratio
   11. Refill reminders (deferred to Future Work paragraph)
@@ -802,5 +819,6 @@ PROJECT COMPLETE
     Phase 9    -- Drug-name labels, Fast/Medium/Slow movers rename,
                   expiry finance panel, receive stock + recall pages,
                   notification center / alert engine,
-                  seasonal decomposition + YoY chart
-                  (144 tests total, 3 items remaining)
+                  seasonal decomposition + YoY chart,
+                  manage catalog page (add drug + add ATC)
+                  (154 tests total, 2 items remaining)
