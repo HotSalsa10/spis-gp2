@@ -24,6 +24,7 @@ from spis.dashboard._shared import (
     check_required_files,
     inject_css,
     load_artifacts,
+    load_atc_labels,
     load_atc_names,
     load_drugs,
     run_assessment,
@@ -79,6 +80,7 @@ st.caption(
 
 tier_counts = Counter(ra.risk_tier for ra in results)
 atc_names   = load_atc_names(str(DB_PATH))
+atc_labels  = load_atc_labels(str(DB_PATH))
 
 # ---------------------------------------------------------------------------
 # Critical alert banner
@@ -87,7 +89,11 @@ atc_names   = load_atc_names(str(DB_PATH))
 critical_items = [ra for ra in results if ra.risk_tier == "CRITICAL"]
 if critical_items:
     items_html = " &nbsp;·&nbsp; ".join(
-        f"<strong>{ra.atc_code}</strong> — order {ra.order_qty:.0f} units"
+        "<strong>{drugs}</strong> ({code}) &mdash; order {qty:.0f} units".format(
+            drugs=atc_labels.get(ra.atc_code, {}).get("drugs_short", ra.atc_code),
+            code=ra.atc_code,
+            qty=ra.order_qty,
+        )
         for ra in critical_items
     )
     st.markdown(
@@ -214,6 +220,7 @@ for ra in results:
     rows.append({
         "ATC Code":      ra.atc_code,
         "Drug Category": atc_names.get(ra.atc_code, ra.atc_code),
+        "Medications":   atc_labels.get(ra.atc_code, {}).get("drugs_short", ""),
         "In Stock":      round(ra.current_stock, 1),
         "30d Forecast":  round(ra.forecast_30d, 1),
         "Daily Demand":  round(ra.daily_demand, 1),

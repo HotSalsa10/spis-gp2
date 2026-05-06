@@ -22,6 +22,7 @@ from spis.dashboard._shared import (
     check_required_files,
     inject_css,
     load_artifacts,
+    load_atc_labels,
     load_atc_names,
     load_drugs,
     run_assessment,
@@ -53,7 +54,8 @@ with st.spinner("Loading model ..."):
     model, encoder, inventory = load_artifacts()
     results = run_assessment(model, encoder, inventory)
 
-atc_names = load_atc_names(str(DB_PATH))
+atc_names  = load_atc_names(str(DB_PATH))
+atc_labels = load_atc_labels(str(DB_PATH))
 drugs_df   = load_drugs(str(DB_PATH))
 
 # Build drug name lookup: atc_code -> sorted list of drug names
@@ -62,7 +64,13 @@ for _, row in drugs_df.iterrows():
     drugs_by_atc.setdefault(row["atc_code"], []).append(row["drug_name"])
 
 atc_codes = sorted(inventory.keys())
-atc_options = [f"{code} — {atc_names.get(code, code)}" for code in atc_codes]
+atc_options = [
+    "{code} — {drugs}".format(
+        code=code,
+        drugs=atc_labels.get(code, {}).get("drugs_short", atc_names.get(code, code)),
+    )
+    for code in atc_codes
+]
 
 col_sel, col_slider = st.columns([3, 2])
 with col_sel:

@@ -22,6 +22,7 @@ from spis.dashboard._shared import (
     check_required_files,
     inject_css,
     load_artifacts,
+    load_atc_labels,
     run_assessment,
 )
 
@@ -56,7 +57,8 @@ with st.spinner("Loading inventory ..."):
     model, encoder, inventory = load_artifacts()
     results = run_assessment(model, encoder, inventory)
 
-ra_by_atc = {ra.atc_code: ra for ra in results}
+ra_by_atc  = {ra.atc_code: ra for ra in results}
+atc_labels = load_atc_labels(str(DB_PATH))
 
 # ---------------------------------------------------------------------------
 # Build form with one number_input per ATC code
@@ -84,8 +86,18 @@ with st.form("stock_update_form"):
         ra = ra_by_atc.get(atc_code)
         badge = TIER_BADGE.get(ra.risk_tier, "") if ra else ""
 
+        label_info  = atc_labels.get(atc_code, {})
+        drugs_short = label_info.get("drugs_short", atc_code)
+        category    = label_info.get("category", "")
+
         c1, c2, c3 = st.columns([2, 3, 2])
-        c1.markdown(f"**{badge}** {atc_code}")
+        c1.markdown(
+            "**{badge}** {drugs}  \n"
+            "<small style='color:#5a7a9a'>{code} - {cat}</small>".format(
+                badge=badge, drugs=drugs_short, code=atc_code, cat=category,
+            ),
+            unsafe_allow_html=True,
+        )
         new_val = c2.number_input(
             label=f"stock_{atc_code}",
             label_visibility="collapsed",

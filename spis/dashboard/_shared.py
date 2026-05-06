@@ -282,6 +282,32 @@ def load_drugs(db_path: str) -> "pd.DataFrame":
         )
 
 
+@st.cache_data
+def load_atc_labels(db_path: str) -> dict:
+    """Return dict: atc_code -> {category, drugs_short (top 3), drugs_full (all)}."""
+    with sqlite3.connect(db_path) as conn:
+        cats = conn.execute(
+            "SELECT atc_code, atc_name FROM atc_categories"
+        ).fetchall()
+        drug_rows = conn.execute(
+            "SELECT atc_code, drug_name FROM drugs ORDER BY atc_code, drug_name"
+        ).fetchall()
+
+    drug_map: dict = {}
+    for code, name in drug_rows:
+        drug_map.setdefault(code, []).append(name)
+
+    result = {}
+    for code, cat_name in cats:
+        names = drug_map.get(code, [])
+        result[code] = {
+            "category":    cat_name,
+            "drugs_short": " / ".join(names[:3]),
+            "drugs_full":  ", ".join(names),
+        }
+    return result
+
+
 def check_required_files() -> bool:
     """
     Return True if all required files exist.

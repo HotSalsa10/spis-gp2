@@ -20,11 +20,13 @@ ABC_A_CUTOFF = 80
 ABC_B_CUTOFF = 95
 
 from spis.dashboard._shared import (
+    DB_PATH,
     FEATURES_CSV,
     MODELS_DIR,
     check_required_files,
     inject_css,
     load_artifacts,
+    load_atc_labels,
     run_assessment,
 )
 
@@ -130,11 +132,10 @@ st.divider()
 # Panel 2 — ABC / Pareto demand analysis
 # ---------------------------------------------------------------------------
 
-st.subheader("ABC Demand Analysis")
+st.subheader("Fast / Medium / Slow Movers (ABC Pareto)")
 st.caption(
-    f"A = codes driving the first {ABC_A_CUTOFF}% of demand  ·  "
-    f"B = up to {ABC_B_CUTOFF}%  ·  "
-    "C = remaining  ·  "
+    "A-class drugs (top 80% of demand) need tight stock control; "
+    "C-class can be ordered less frequently.  "
     "Based on 30-day XGBoost forecasts (refreshed every 5 min)"
 )
 
@@ -154,15 +155,20 @@ abc_df["Share %"] = abc_df["30d Forecast"] / total_demand * 100
 
 def _abc_class(cum_pct: float) -> str:
     if cum_pct <= ABC_A_CUTOFF:
-        return "A"
+        return "Fast"
     if cum_pct <= ABC_B_CUTOFF:
-        return "B"
-    return "C"
+        return "Medium"
+    return "Slow"
 
 
 abc_df["Class"] = abc_df["Cumulative %"].apply(_abc_class)
 
-color_map = {"A": "#d62728", "B": "#ff7f0e", "C": "#1f77b4"}
+atc_labels = load_atc_labels(str(DB_PATH))
+abc_df["Medications"] = abc_df["ATC Code"].map(
+    lambda code: atc_labels.get(code, {}).get("drugs_short", "")
+)
+
+color_map = {"Fast": "#d62728", "Medium": "#ff7f0e", "Slow": "#1f77b4"}
 
 fig2 = px.bar(
     abc_df,
@@ -171,6 +177,7 @@ fig2 = px.bar(
     color="Class",
     color_discrete_map=color_map,
     text="Class",
+    hover_data={"Medications": True, "Class": False},
     labels={"30d Forecast": "30-day Forecasted Demand (units)"},
     height=400,
 )
@@ -185,7 +192,7 @@ fig2.update_layout(
 st.plotly_chart(fig2, use_container_width=True)
 
 st.dataframe(
-    abc_df[["ATC Code", "30d Forecast", "Share %", "Cumulative %", "Class"]]
+    abc_df[["ATC Code", "Medications", "30d Forecast", "Share %", "Cumulative %", "Class"]]
     .rename(columns={"30d Forecast": "30d Forecast (units)",
                      "Share %": "Share (%)",
                      "Cumulative %": "Cumulative (%)"}),

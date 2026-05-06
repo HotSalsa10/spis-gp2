@@ -652,6 +652,52 @@ TEST SUITE (93 tests total after Phase 8.5)
 
 
 ========================================================================
+PHASE 9 -- "Make It Smart" (Professor Feedback Round)
+========================================================================
+
+WHAT WAS DONE
+  Addressed the professor's feedback that the system "isn't actually
+  smart" by making the ML core visible in the UI and adding drug-name
+  labels throughout.
+
+ITEMS COMPLETED
+
+  Item 1 -- Drug-name labels everywhere
+    - Lifted _load_atc_drug_info from 3_Expiry_Offers.py into
+      spis/dashboard/_shared.py as load_atc_labels(db_path).
+      Returns: {atc_code: {category, drugs_short (top 3), drugs_full}}
+    - app.py (Overview): critical banner and risk table show drug names
+      alongside ATC codes.
+    - pages/1_History_Forecast.py: ATC dropdown shows drug names.
+    - pages/2_Stock_Update.py: row label = drug list, grey caption = code.
+    - pages/3_Expiry_Offers.py: "Medications" column added to table.
+    - pages/4_Analytics.py: ABC chart hover shows drug names.
+
+  Item 2 -- Rename "ABC Demand Analysis" to "Fast / Medium / Slow Movers"
+    - Subheader renamed to "Fast / Medium / Slow Movers (ABC Pareto)".
+    - Legend labels changed: A -> Fast, B -> Medium, C -> Slow.
+    - Color map updated: Fast=red, Medium=orange, Slow=blue.
+    - Caption updated to plain language explanation.
+
+CURRENCY
+  All monetary values displayed in SAR (Saudi Riyals).
+
+TEST SUITE
+  101 tests total, all passing.
+
+ITEMS PENDING (see PHASE9.md for full details)
+  3. Expiry loss financial summary panel
+  4. Receive Stock page (add new batch)
+  5. Batch code surfacing + Recall demo
+  6. Notification Center (low stock + expiry alerts)
+  7. Seasonal decomposition + YoY chart
+  8. Manage Catalog (add drug + add ATC)
+  9. Suppliers + Purchase Order PDF
+  10. Inventory turnover ratio
+  11. Refill reminders (deferred to Future Work paragraph)
+
+
+========================================================================
 PROJECT COMPLETE
 ========================================================================
 
@@ -666,3 +712,5 @@ PROJECT COMPLETE
     Phase 8    -- GP Report (7 chapters, IEEE references)
     Phase 8.5  -- Multi-page dashboard, expiry advisor, stock editor,
                   analytics charts (93 tests total)
+    Phase 9    -- Drug-name labels on all pages, Fast/Medium/Slow movers
+                  renaming (101 tests total, 8 items remaining)

@@ -8,7 +8,6 @@ and displays a colour-coded table with suggested promotions plus a
 waste recovery summary.
 """
 
-import sqlite3
 from datetime import date
 
 import pandas as pd
@@ -21,33 +20,10 @@ from spis.dashboard._shared import (
     check_required_files,
     inject_css,
     load_artifacts,
+    load_atc_labels,
     run_assessment,
 )
 from spis.models.expiry_advisor import assess_all_batches
-
-
-@st.cache_data
-def _load_atc_drug_info(db_path: str) -> dict[str, dict]:
-    """Return dict: atc_code -> {name, drugs (comma-separated top 4)}."""
-    with sqlite3.connect(db_path) as conn:
-        cats = conn.execute(
-            "SELECT atc_code, atc_name FROM atc_categories"
-        ).fetchall()
-        drugs = conn.execute(
-            "SELECT atc_code, drug_name FROM drugs ORDER BY atc_code, drug_name"
-        ).fetchall()
-
-    drug_map: dict[str, list] = {}
-    for code, name in drugs:
-        drug_map.setdefault(code, []).append(name)
-
-    return {
-        code: {
-            "name": cat_name,
-            "drugs": ", ".join(drug_map.get(code, [])[:4]),
-        }
-        for code, cat_name in cats
-    }
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -79,9 +55,9 @@ def _load_batches_cached(db_path: str) -> list[dict]:
     return load_batches(db_path)
 
 
-batches = _load_batches_cached(str(DB_PATH))
-offers = assess_all_batches(batches, demand_by_atc)
-atc_info = _load_atc_drug_info(str(DB_PATH))
+batches  = _load_batches_cached(str(DB_PATH))
+offers   = assess_all_batches(batches, demand_by_atc)
+atc_info = load_atc_labels(str(DB_PATH))
 
 # ---------------------------------------------------------------------------
 # Summary card
@@ -208,8 +184,8 @@ def _render_offers_section(filtered_offers, tab_key: str):
         rows.append({
             "_batch_id":            batch_id_map.get(o.batch_number, -1),
             "ATC Code":             o.atc_code,
-            "Drug Category":        info.get("name", o.atc_code),
-            "Example Drugs":        info.get("drugs", ""),
+            "Drug Category":        info.get("category", o.atc_code),
+            "Medications":          info.get("drugs_full", ""),
             "Batch":                o.batch_number,
             "Qty (units)":          round(o.quantity, 1),
             "Expiry Date":          o.expiry_date,
@@ -236,7 +212,7 @@ def _render_offers_section(filtered_offers, tab_key: str):
         hide_index=True,
         key=f"editor_{tab_key}",
         disabled=[
-            "ATC Code", "Drug Category", "Example Drugs", "Batch",
+            "ATC Code", "Drug Category", "Medications", "Batch",
             "Qty (units)", "Expiry Date", "Days Left", "Forecast Sales",
             "At Risk", "Waste Value (SAR)", "Status",
             "Suggested Discount %", "Action",
