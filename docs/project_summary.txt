@@ -679,6 +679,17 @@ ITEMS COMPLETED
     - Color map updated: Fast=red, Medium=orange, Slow=blue.
     - Caption updated to plain language explanation.
 
+  Item 3 -- Expiry loss financial summary panel
+    - New module: spis/models/expiry_finance.py
+        compute_value_at_risk(offers)    -> SAR total at risk
+        compute_recovered(offers, batches) -> SAR recovered at discount
+        compute_waste(offers, batches)   -> SAR written off (returned/expired)
+        waste_by_atc(offers)             -> {atc_code: SAR} for bar chart
+    - pages/3_Expiry_Offers.py updated:
+        4-KPI strip: Value at Risk / Projected Recovery / Written Off / Waste Rate %
+        Bar chart: potential waste in SAR per ATC code (red bars, hover shows drugs)
+    - 13 new tests in tests/test_expiry_finance.py (all pass)
+
 CURRENCY
   All monetary values displayed in SAR (Saudi Riyals).
 

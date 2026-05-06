@@ -11,6 +11,7 @@ waste recovery summary.
 from datetime import date
 
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -24,6 +25,12 @@ from spis.dashboard._shared import (
     run_assessment,
 )
 from spis.models.expiry_advisor import assess_all_batches
+from spis.models.expiry_finance import (
+    compute_value_at_risk,
+    compute_recovered,
+    compute_waste,
+    waste_by_atc,
+)
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -60,31 +67,50 @@ offers   = assess_all_batches(batches, demand_by_atc)
 atc_info = load_atc_labels(str(DB_PATH))
 
 # ---------------------------------------------------------------------------
-# Summary card
+# Financial summary
 # ---------------------------------------------------------------------------
 
-total_waste = sum(o.waste_value for o in offers)
-total_at_risk = sum(o.units_at_risk for o in offers)
-
-def _projected_recovery(offers_list, batches_list) -> float:
-    """Revenue recovered by selling at-risk units at a discounted price.
-    Recovery = units_at_risk * unit_cost * (1 - discount/100).
-    Without a discount a unit at risk becomes waste; any sale price > 0 is recovery.
-    """
-    discount_map = {b["batch_number"]: b["applied_discount"] for b in batches_list}
-    total = 0.0
-    for o in offers_list:
-        discount_pct = discount_map.get(o.batch_number, o.suggested_discount_pct) or 0.0
-        total += o.units_at_risk * o.unit_cost * (1.0 - discount_pct / 100.0)
-    return total
-
-proj_recovery = _projected_recovery(offers, batches)
+sar_at_risk    = compute_value_at_risk(offers)
+sar_recovered  = compute_recovered(offers, batches)
+sar_written_off = compute_waste(offers, batches)
+waste_rate     = (sar_written_off / sar_at_risk * 100) if sar_at_risk else 0.0
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Batches Needing Action", len(offers))
-c2.metric("Total Units at Risk",    f"{total_at_risk:.0f}")
-c3.metric("Potential Waste Value",  f"SAR {total_waste:.2f}")
-c4.metric("Projected Recovery",     f"SAR {proj_recovery:.2f}")
+c1.metric("Value at Risk",      f"SAR {sar_at_risk:.2f}")
+c2.metric("Projected Recovery", f"SAR {sar_recovered:.2f}")
+c3.metric("Written Off",        f"SAR {sar_written_off:.2f}")
+c4.metric("Waste Rate",         f"{waste_rate:.1f}%",
+          help="Written-off SAR as a share of total at-risk SAR")
+
+if offers:
+    wba = waste_by_atc(offers)
+    wba_df = pd.DataFrame(
+        [{"ATC Code": k, "Waste (SAR)": v}
+         for k, v in sorted(wba.items(), key=lambda x: -x[1])]
+    )
+    wba_df["Medications"] = wba_df["ATC Code"].map(
+        lambda c: atc_info.get(c, {}).get("drugs_short", "")
+    )
+    fig_waste = px.bar(
+        wba_df,
+        x="ATC Code",
+        y="Waste (SAR)",
+        text="Waste (SAR)",
+        hover_data={"Medications": True},
+        labels={"Waste (SAR)": "Potential Waste (SAR)"},
+        color_discrete_sequence=["#e63946"],
+        height=280,
+    )
+    fig_waste.update_traces(texttemplate="SAR %{text:.0f}", textposition="outside")
+    fig_waste.update_layout(
+        plot_bgcolor="#161b27",
+        paper_bgcolor="#161b27",
+        font={"color": "#a8c0dd"},
+        xaxis={"gridcolor": "#1e2d45"},
+        yaxis={"gridcolor": "#1e2d45"},
+        margin={"t": 24, "b": 10},
+    )
+    st.plotly_chart(fig_waste, use_container_width=True)
 
 st.divider()
 

@@ -22,30 +22,6 @@
 
 ---
 
-## 3. Expiry loss financial summary panel  [0.5 day]  Rating 10/10
-
-**Why:** converts predictions to money — single most persuasive slide for the defense.
-
-**Approach:**
-1. New panel at the top of `pages/3_Expiry_Offers.py`:
-   - **KPI tiles:** total inventory $ at risk, $ recovered via discounts (units * discounted price), $ written off (returned batches), waste rate %.
-   - **Bar chart:** waste $ by ATC code over the last 90 days.
-   - **Time-series:** monthly waste $ trend (placeholder using batch data + simulated history if no real timeline yet).
-2. Helper module: `spis/models/expiry_finance.py` with pure functions
-   `compute_value_at_risk(batches)`, `compute_recovered(batches)`,
-   `compute_waste(batches)`. Return Decimal or rounded float.
-3. Reuse `unit_cost` from `inventory_batches`. Apply discount tier from
-   `spis/models/expiry_advisor.py:classify_discount` to estimate recovered revenue.
-4. SAR / USD currency symbol: pick one and document in `docs/project_summary.txt`.
-
-**Files:** `spis/models/expiry_finance.py` (new), `tests/test_expiry_finance.py` (new),
-`spis/dashboard/pages/3_Expiry_Offers.py`.
-**Tests:** 6-8 unit tests covering value-at-risk math, recovered revenue, edge cases
-(zero-stock batch, returned batch, expired batch).
-**Done when:** the page opens with a 4-KPI strip and at least one chart that quantifies waste in money.
-
----
-
 ## 4. Receive Stock page (add new batch)  [1 day]  Rating 10/10
 
 **Why:** fixes the biggest architectural hole — currently batches only exist via seed
@@ -263,5 +239,5 @@ credibility and pulls scope outside "inventory system." Add a paragraph in
 
 ## Status snapshot
 
-- Total items pending: 8 (items 1 and 2 done; refill reminders deferred, not counted)
+- Total items pending: 7 (items 1, 2, 3 done; refill reminders deferred, not counted)
 - Last updated: 2026-05-06
