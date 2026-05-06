@@ -3,13 +3,15 @@ spis/data/database.py
 ---------------------
 Initialises the SPIS SQLite database schema and seeds the ATC / drug reference data.
 
-Schema (6 tables):
-    atc_categories  — ATC-4 classification reference (8 rows)
-    drugs           — Clinical drug catalog (57 rows)
-    sales           — Time-series fact table (rows inserted by ingest_kaggle.py)
-    atc_inventory   — Current stock level per ATC code (Phase 4)
-    inventory_batches — Per-batch expiry and cost tracking (Phase 8.5)
-    alerts          — Notification alerts for low stock and expiry events (Phase 9)
+Schema (8 tables):
+    atc_categories  -- ATC-4 classification reference (8 rows)
+    drugs           -- Clinical drug catalog (57 rows)
+    sales           -- Time-series fact table (rows inserted by ingest_kaggle.py)
+    atc_inventory   -- Current stock level per ATC code (Phase 4)
+    inventory_batches -- Per-batch expiry and cost tracking (Phase 8.5)
+    alerts          -- Notification alerts for low stock and expiry events (Phase 9)
+    suppliers       -- Supplier directory (Phase 9 Item 9)
+    purchase_orders -- Sent PO history (Phase 9 Item 9)
 
 Usage:
     from spis.data.database import init_db
@@ -87,6 +89,31 @@ ATC_INVENTORY_SEED = [
     ("R03",   25.0,  "~2 days of stock (CRITICAL)"),
     ("R06",   420.0, "~40 days of stock (OVERSTOCK)"),
 ]
+
+# ---------------------------------------------------------------------------
+# Reference Data — Suppliers (Phase 9 Item 9)
+# ---------------------------------------------------------------------------
+# Fixed supplier_id values so seeding is deterministic across fresh DBs.
+
+SUPPLIERS_SEED = [
+    # (supplier_id, name, email, phone, lead_time_days, notes)
+    (1, "Al-Dawaa Pharma Supplies",     "orders@aldawaa.sa",    "+966-11-400-1000", 3,
+     "Local distributor -- MSK drugs"),
+    (2, "Saudi Medical Supplies Co.",   "supply@sms-ksa.sa",    "+966-12-300-2000", 5,
+     "National distributor -- analgesics"),
+    (3, "Gulf Pharma Trading",          "procurement@gpt.sa",   "+966-13-200-3000", 7,
+     "Controlled substance specialist"),
+    (4, "National Health Distributors", "orders@nhd-ksa.sa",    "+966-14-100-4000", 4,
+     "Respiratory products"),
+]
+
+# Assign each ATC code to its primary supplier (used to UPDATE atc_categories on seed).
+ATC_SUPPLIER_MAP = {
+    "M01AB": 1, "M01AE": 1,
+    "N02BA": 2, "N02BE": 2,
+    "N05B":  3, "N05C":  3,
+    "R03":   4, "R06":   4,
+}
 
 DRUGS_CATALOG = [
     # (drug_name, atc_code, unit, is_critical)
@@ -185,7 +212,7 @@ def init_db(db_path: str | Path) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute("PRAGMA foreign_keys = ON;")
         _create_tables(conn)
-        _migrate_batches_columns(conn)
+        _migrate_schema(conn)
         _seed_reference_data(conn)
         conn.commit()
 
@@ -275,24 +302,53 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             acknowledged_at TEXT            -- NULL means open; ISO timestamp when acked
         );
+
+        -- Supplier directory (Phase 9 Item 9)
+        CREATE TABLE IF NOT EXISTS suppliers (
+            supplier_id    INTEGER PRIMARY KEY,
+            name           TEXT NOT NULL UNIQUE,
+            email          TEXT,
+            phone          TEXT,
+            lead_time_days INTEGER NOT NULL DEFAULT 7,
+            notes          TEXT
+        );
+
+        -- Sent purchase order history (Phase 9 Item 9)
+        CREATE TABLE IF NOT EXISTS purchase_orders (
+            po_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            supplier_id   INTEGER REFERENCES suppliers(supplier_id),
+            supplier_name TEXT NOT NULL,
+            created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            status        TEXT NOT NULL DEFAULT 'SENT',
+            total_cost    REAL NOT NULL DEFAULT 0,
+            lines_json    TEXT
+        );
     """)
 
 
-def _migrate_batches_columns(conn: sqlite3.Connection) -> None:
+def _migrate_schema(conn: sqlite3.Connection) -> None:
     """Add columns introduced after initial schema deployment (idempotent)."""
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(inventory_batches)")}
-    if "applied_discount" not in existing:
+    existing_batches = {row[1] for row in conn.execute("PRAGMA table_info(inventory_batches)")}
+    if "applied_discount" not in existing_batches:
         conn.execute("ALTER TABLE inventory_batches ADD COLUMN applied_discount REAL")
-    if "returned" not in existing:
+    if "returned" not in existing_batches:
         conn.execute(
             "ALTER TABLE inventory_batches ADD COLUMN returned INTEGER NOT NULL DEFAULT 0"
+        )
+    existing_atc = {row[1] for row in conn.execute("PRAGMA table_info(atc_categories)")}
+    if "supplier_id" not in existing_atc:
+        conn.execute(
+            "ALTER TABLE atc_categories ADD COLUMN supplier_id INTEGER"
+            " REFERENCES suppliers(supplier_id)"
         )
 
 
 def _seed_reference_data(conn: sqlite3.Connection) -> None:
-    """Insert ATC categories, drug catalog, and inventory rows (skips duplicates)."""
+    """Insert ATC categories, drug catalog, inventory rows, and suppliers (skips duplicates)."""
     conn.executemany(
-        "INSERT OR IGNORE INTO atc_categories VALUES (?,?,?,?,?)",
+        "INSERT OR IGNORE INTO atc_categories"
+        " (atc_code, atc_name, system_name, level1_code, level2_code)"
+        " VALUES (?,?,?,?,?)",
         ATC_CATEGORIES,
     )
     conn.executemany(
@@ -309,22 +365,37 @@ def _seed_reference_data(conn: sqlite3.Connection) -> None:
            VALUES (?,?,?,?,?,?,?)""",
         BATCH_SEED,
     )
+    conn.executemany(
+        """INSERT OR IGNORE INTO suppliers
+               (supplier_id, name, email, phone, lead_time_days, notes)
+           VALUES (?,?,?,?,?,?)""",
+        SUPPLIERS_SEED,
+    )
+    for atc_code, supplier_id in ATC_SUPPLIER_MAP.items():
+        conn.execute(
+            "UPDATE atc_categories SET supplier_id = ? WHERE atc_code = ? AND supplier_id IS NULL",
+            (supplier_id, atc_code),
+        )
 
 
 def _print_summary(db_path: Path) -> None:
     """Print a quick row-count summary to confirm seeding worked."""
     with sqlite3.connect(db_path) as conn:
-        atc_n    = conn.execute("SELECT COUNT(*) FROM atc_categories").fetchone()[0]
-        drug_n   = conn.execute("SELECT COUNT(*) FROM drugs").fetchone()[0]
-        crit_n   = conn.execute("SELECT COUNT(*) FROM drugs WHERE is_critical=1").fetchone()[0]
-        inv_n    = conn.execute("SELECT COUNT(*) FROM atc_inventory").fetchone()[0]
-        batch_n  = conn.execute("SELECT COUNT(*) FROM inventory_batches").fetchone()[0]
-        alert_n  = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+        atc_n      = conn.execute("SELECT COUNT(*) FROM atc_categories").fetchone()[0]
+        drug_n     = conn.execute("SELECT COUNT(*) FROM drugs").fetchone()[0]
+        crit_n     = conn.execute("SELECT COUNT(*) FROM drugs WHERE is_critical=1").fetchone()[0]
+        inv_n      = conn.execute("SELECT COUNT(*) FROM atc_inventory").fetchone()[0]
+        batch_n    = conn.execute("SELECT COUNT(*) FROM inventory_batches").fetchone()[0]
+        alert_n    = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+        supplier_n = conn.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0]
+        po_n       = conn.execute("SELECT COUNT(*) FROM purchase_orders").fetchone()[0]
     print(f"[database]   atc_categories    : {atc_n:>4} rows")
     print(f"[database]   drugs             : {drug_n:>4} rows  ({crit_n} critical)")
     print(f"[database]   atc_inventory     : {inv_n:>4} rows  (Phase 4 stock levels)")
     print(f"[database]   inventory_batches : {batch_n:>4} rows  (Phase 8.5 expiry tracking)")
     print(f"[database]   alerts            : {alert_n:>4} rows  (Phase 9 notification center)")
+    print(f"[database]   suppliers         : {supplier_n:>4} rows  (Phase 9 PO suppliers)")
+    print(f"[database]   purchase_orders   : {po_n:>4} rows  (Phase 9 PO history)")
     print(f"[database]   sales             :    0 rows  (populated by ingest_kaggle.py)")
 
 
@@ -683,6 +754,93 @@ def acknowledge_alert(db_path: str | Path, alert_id: int) -> None:
             (ts, alert_id),
         )
         conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Public helpers — supplier and purchase order management (Phase 9 Item 9)
+# ---------------------------------------------------------------------------
+
+
+def _ensure_purchase_orders_table(conn: sqlite3.Connection) -> None:
+    """Create purchase_orders table if it does not yet exist (migration guard)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS purchase_orders (
+            po_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            supplier_id   INTEGER,
+            supplier_name TEXT NOT NULL,
+            created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            status        TEXT NOT NULL DEFAULT 'SENT',
+            total_cost    REAL NOT NULL DEFAULT 0,
+            lines_json    TEXT
+        )
+    """)
+
+
+def load_suppliers(db_path: str | Path) -> list[dict]:
+    """
+    Return all suppliers ordered by name.
+
+    Each dict: supplier_id, name, email, phone, lead_time_days, notes.
+    """
+    db_path = Path(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT supplier_id, name, email, phone, lead_time_days, notes"
+            " FROM suppliers ORDER BY name"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_purchase_order(
+    db_path: str | Path,
+    supplier_id: int | None,
+    supplier_name: str,
+    lines_json: str,
+    total_cost: float,
+) -> int:
+    """
+    Insert a new purchase order into purchase_orders and return the new po_id.
+
+    Args:
+        db_path      : Path to the SQLite database.
+        supplier_id  : FK to suppliers table (None for unassigned suppliers).
+        supplier_name: Display name stored on the PO for historical accuracy.
+        lines_json   : JSON-encoded list of line-item dicts.
+        total_cost   : Grand total in SAR.
+
+    Returns:
+        The integer po_id of the newly created row.
+    """
+    db_path = Path(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _ensure_purchase_orders_table(conn)
+        cur = conn.execute(
+            """INSERT INTO purchase_orders
+                   (supplier_id, supplier_name, total_cost, lines_json, status)
+               VALUES (?, ?, ?, ?, 'SENT')""",
+            (supplier_id, supplier_name, total_cost, lines_json),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def load_purchase_orders(db_path: str | Path) -> list[dict]:
+    """
+    Return all purchase orders (newest first).
+
+    Each dict: po_id, supplier_id, supplier_name, created_at, status, total_cost, lines_json.
+    """
+    db_path = Path(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _ensure_purchase_orders_table(conn)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT po_id, supplier_id, supplier_name, created_at, status, total_cost
+               FROM purchase_orders
+               ORDER BY created_at DESC"""
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def save_batch_overrides(

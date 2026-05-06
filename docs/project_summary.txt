@@ -771,6 +771,34 @@ TEST SUITE
     - requirements.txt: added statsmodels>=0.14.
     - 5 tests in tests/test_decomposition.py (all pass).
 
+  Item 9 -- Suppliers + Purchase Order PDF
+    - suppliers table: supplier_id PK, name, email, phone, lead_time_days, notes.
+      Seeded with 4 realistic Saudi pharmaceutical distributors.
+    - atc_categories.supplier_id FK added via migration (_migrate_schema).
+      ATC_SUPPLIER_MAP assigns each of the 8 ATC codes to one of the 4 suppliers.
+    - purchase_orders table: po_id, supplier_id FK, supplier_name, created_at,
+      status (default SENT), total_cost, lines_json.
+    - New module: spis/models/po_generator.py
+        build_all_pos(db_path, assessments) -> list[dict]: groups CRITICAL + LOW
+        risk ATC codes by supplier; builds PO dicts with supplier header,
+        line items (atc_code, atc_name, drug_names, qty, unit_cost, total_cost,
+        risk_tier), and grand_total.
+        generate_po_pdf(po_dict) -> bytes: renders a formatted A4 PDF with title
+        block, supplier details, line-items table, grand total, and footer.
+    - New DB helpers in spis/data/database.py:
+        load_suppliers(db_path), save_purchase_order(...), load_purchase_orders(db_path).
+    - New page: spis/dashboard/pages/8_Purchase_Orders.py
+        Summary strip: suppliers to order from, total line items, estimated total SAR.
+        Per-supplier expander: line-items DataFrame, grand total, Download PDF button
+        (st.download_button -> generate_po_pdf bytes), Mark as Sent button
+        (calls save_purchase_order).
+        History section at bottom using load_purchase_orders.
+    - 14 tests in tests/test_po_generator.py (all pass):
+        filtering (CRITICAL+LOW included, OK/OVERSTOCK/zero-qty excluded),
+        supplier grouping (same -> 1 PO, different -> 2 POs),
+        grand_total math, po_date format, default unit cost fallback,
+        PDF bytes non-empty, PDF %PDF header, multi-line PDF, unassigned supplier PDF.
+
   Item 8 -- Manage Catalog (add drug + add ATC)
     - New module: spis/data/catalog.py
         _infer_levels(code) -> (level1, level2): moved from register_atc.py.
@@ -793,10 +821,9 @@ CURRENCY
   All monetary values displayed in SAR (Saudi Riyals).
 
 TEST SUITE
-  154 tests total, all passing.
+  168 tests total, all passing.
 
 ITEMS PENDING (see PHASE9.md for full details)
-  9. Suppliers + Purchase Order PDF
   10. Inventory turnover ratio
   11. Refill reminders (deferred to Future Work paragraph)
 
@@ -820,5 +847,6 @@ PROJECT COMPLETE
                   expiry finance panel, receive stock + recall pages,
                   notification center / alert engine,
                   seasonal decomposition + YoY chart,
-                  manage catalog page (add drug + add ATC)
-                  (154 tests total, 2 items remaining)
+                  manage catalog page (add drug + add ATC),
+                  suppliers + purchase order PDF with download + history
+                  (168 tests total, 1 item remaining)
