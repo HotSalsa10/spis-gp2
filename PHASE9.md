@@ -22,31 +22,6 @@
 
 ---
 
-## 7. Seasonal decomposition + YoY chart  [1 day]  Rating 8/10
-
-**Why:** looks like a Bloomberg terminal — non-technical reviewers read this as "smart."
-
-**Approach:**
-1. Add `statsmodels>=0.14` to `requirements.txt` (already a transitive dep of scipy stack).
-2. New helper `spis/models/decomposition.py`:
-   `decompose(series, period=365)` -> dict with `trend`, `seasonal`, `residual` arrays.
-   Wraps `statsmodels.tsa.seasonal.seasonal_decompose(model='additive')`.
-3. New panel on `pages/4_Analytics.py` below ABC:
-   - ATC selector
-   - Three small line charts stacked: trend, seasonal, residual (Plotly subplots).
-   - Caption explains: *"Trend = long-term direction; Seasonal = repeating pattern;
-     Residual = unexplained noise. Low residual = the model captures the signal well."*
-4. Second panel: **YoY Growth %** by ATC code — bar chart of `(this_year - last_year) / last_year`
-   computed from the daily features CSV.
-
-**Files:** `spis/models/decomposition.py` (new), `tests/test_decomposition.py` (new),
-`spis/dashboard/pages/4_Analytics.py`.
-**Tests:** 4 tests — additive decomposition reconstructs series, period validation,
-NaN handling, output shape.
-**Done when:** Analytics page has a 3-panel decomposition + YoY chart, both reactive to ATC selection.
-
----
-
 ## 8. Manage Catalog (add drug + add ATC)  [0.5 day]  Rating 7/10
 
 **Why:** proves the pharmacy-agnostic scalability story is real, not academic.
@@ -148,5 +123,5 @@ credibility and pulls scope outside "inventory system." Add a paragraph in
 
 ## Status snapshot
 
-- Total items pending: 4 (items 1, 2, 3, 4, 5, 6 done; refill reminders deferred, not counted)
+- Total items pending: 3 (items 1, 2, 3, 4, 5, 6, 7 done; refill reminders deferred, not counted)
 - Last updated: 2026-05-06

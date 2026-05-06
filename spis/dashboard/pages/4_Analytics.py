@@ -10,10 +10,14 @@ Panels:
 
 import json
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
+
+from spis.models.decomposition import decompose
 
 # ABC classification cutoffs (cumulative demand %)
 ABC_A_CUTOFF = 80
@@ -203,7 +207,147 @@ st.dataframe(
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Panel 3 — 12-month rolling demand trend
+# Panel 3 — Seasonal decomposition
+# ---------------------------------------------------------------------------
+
+st.subheader("Seasonal Decomposition")
+st.caption(
+    "Trend = long-term direction; Seasonal = repeating pattern; "
+    "Residual = unexplained noise. Low residual means the model captures the signal well."
+)
+
+if FEATURES_CSV.exists():
+    @st.cache_data(ttl=600)
+    def _load_features() -> pd.DataFrame:
+        df = pd.read_csv(str(FEATURES_CSV), parse_dates=["date"])
+        return df[["date", "atc_code", "quantity"]].copy()
+
+    feat_df = _load_features()
+    atc_codes_all = sorted(feat_df["atc_code"].unique())
+
+    sel_atc = st.selectbox("ATC Code", atc_codes_all, key="decomp_atc")
+
+    atc_qty = (
+        feat_df[feat_df["atc_code"] == sel_atc]
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+    dates = atc_qty["date"]
+    qty_arr = atc_qty["quantity"].to_numpy(dtype=float)
+
+    decomp = decompose(qty_arr, period=365)
+
+    _DECOMP_TRACES = [
+        ("trend",    "#4cc9f0", "Trend (units/day)"),
+        ("seasonal", "#7bed9f", "Seasonal component"),
+        ("residual", "#ff6b6b", "Residual"),
+    ]
+
+    fig_decomp = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        subplot_titles=[t[2] for t in _DECOMP_TRACES],
+        vertical_spacing=0.09,
+    )
+
+    for row, (key, color, label) in enumerate(_DECOMP_TRACES, start=1):
+        fig_decomp.add_trace(
+            go.Scatter(
+                x=dates, y=decomp[key].round(3),
+                mode="lines", name=label,
+                line={"color": color, "width": 1.2},
+                showlegend=False,
+            ),
+            row=row, col=1,
+        )
+
+    fig_decomp.update_layout(
+        height=540,
+        plot_bgcolor="#161b27",
+        paper_bgcolor="#161b27",
+        font={"color": "#a8c0dd"},
+        margin={"t": 50, "b": 10},
+    )
+    fig_decomp.update_xaxes(gridcolor="#1e2d45")
+    fig_decomp.update_yaxes(gridcolor="#1e2d45", zeroline=False)
+
+    st.plotly_chart(fig_decomp, use_container_width=True)
+else:
+    st.warning("Features CSV not found -- run `scripts/run_pipeline.py` to generate it.")
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Panel 4 — Year-over-Year demand growth
+# ---------------------------------------------------------------------------
+
+st.subheader("Year-over-Year Demand Growth (%)")
+st.caption(
+    "Compares the most recent 365-day period against the prior 365-day period. "
+    "Green = growing demand; red = declining demand."
+)
+
+if FEATURES_CSV.exists():
+    @st.cache_data(ttl=600)
+    def _load_yoy() -> pd.DataFrame:
+        df = pd.read_csv(str(FEATURES_CSV), parse_dates=["date"])
+        df = df[["date", "atc_code", "quantity"]].copy()
+        last_date = df["date"].max()
+        this_start = last_date - pd.Timedelta(days=364)
+        last_start = last_date - pd.Timedelta(days=729)
+        last_end   = last_date - pd.Timedelta(days=365)
+
+        this_yr = (
+            df[df["date"] >= this_start]
+            .groupby("atc_code")["quantity"].sum()
+            .rename("this_year")
+        )
+        last_yr = (
+            df[(df["date"] >= last_start) & (df["date"] <= last_end)]
+            .groupby("atc_code")["quantity"].sum()
+            .rename("last_year")
+        )
+        yoy = pd.concat([this_yr, last_yr], axis=1).dropna()
+        yoy["yoy_pct"] = (yoy["this_year"] - yoy["last_year"]) / yoy["last_year"] * 100
+        return yoy.reset_index().rename(
+            columns={"atc_code": "ATC Code", "yoy_pct": "YoY Growth (%)"}
+        )
+
+    yoy_df = _load_yoy()
+    yoy_df["Direction"] = np.where(yoy_df["YoY Growth (%)"] >= 0, "Growing", "Declining")
+    yoy_df["Label"] = yoy_df["YoY Growth (%)"].apply(lambda x: f"{x:+.1f}%")
+
+    fig_yoy = px.bar(
+        yoy_df.sort_values("YoY Growth (%)"),
+        x="ATC Code",
+        y="YoY Growth (%)",
+        color="Direction",
+        color_discrete_map={"Growing": "#2dc653", "Declining": "#ef233c"},
+        text="Label",
+        height=380,
+    )
+    fig_yoy.update_traces(textposition="outside")
+    fig_yoy.update_layout(
+        showlegend=False,
+        plot_bgcolor="#161b27",
+        paper_bgcolor="#161b27",
+        font={"color": "#a8c0dd"},
+        xaxis={"gridcolor": "#1e2d45"},
+        yaxis={
+            "gridcolor": "#1e2d45",
+            "zeroline": True,
+            "zerolinecolor": "#4e6a84",
+            "zerolinewidth": 1,
+        },
+    )
+    st.plotly_chart(fig_yoy, use_container_width=True)
+else:
+    st.warning("Features CSV not found -- run `scripts/run_pipeline.py` to generate it.")
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Panel 5 — 12-month rolling demand trend
 # ---------------------------------------------------------------------------
 
 st.subheader("12-Month Rolling Demand Trend")

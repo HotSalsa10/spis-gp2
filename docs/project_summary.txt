@@ -756,8 +756,28 @@ CURRENCY
 TEST SUITE
   139 tests total, all passing.
 
+  Item 7 -- Seasonal decomposition + YoY chart
+    - New module: spis/models/decomposition.py
+        decompose(series, period=365) -> dict (trend/seasonal/residual/observed).
+        Wraps statsmodels additive seasonal_decompose with edge-NaN extrapolation
+        and interior-NaN interpolation; raises ValueError for bad period or
+        under-length series.
+    - pages/4_Analytics.py: two new panels added below ABC section:
+        Panel 3 "Seasonal Decomposition": ATC selector + 3-row Plotly subplots
+        (trend in blue, seasonal in green, residual in red); shared x-axis.
+        Panel 4 "Year-over-Year Demand Growth (%)": bar chart comparing the
+        most recent 365-day period vs the prior 365-day period per ATC code;
+        green = growing, red = declining.
+    - requirements.txt: added statsmodels>=0.14.
+    - 5 tests in tests/test_decomposition.py (all pass).
+
+CURRENCY
+  All monetary values displayed in SAR (Saudi Riyals).
+
+TEST SUITE
+  144 tests total, all passing.
+
 ITEMS PENDING (see PHASE9.md for full details)
-  7. Seasonal decomposition + YoY chart
   8. Manage Catalog (add drug + add ATC)
   9. Suppliers + Purchase Order PDF
   10. Inventory turnover ratio
@@ -781,5 +801,6 @@ PROJECT COMPLETE
                   analytics charts (93 tests total)
     Phase 9    -- Drug-name labels, Fast/Medium/Slow movers rename,
                   expiry finance panel, receive stock + recall pages,
-                  notification center / alert engine
-                  (139 tests total, 4 items remaining)
+                  notification center / alert engine,
+                  seasonal decomposition + YoY chart
+                  (144 tests total, 3 items remaining)
