@@ -22,60 +22,6 @@
 
 ---
 
-## 4. Receive Stock page (add new batch)  [1 day]  Rating 10/10
-
-**Why:** fixes the biggest architectural hole — currently batches only exist via seed
-data; no way to register a shipment.
-
-**Approach:**
-1. Add `spis/data/database.py:add_batch(db_path, atc_code, batch_number, quantity,
-   unit_cost, expiry_date, supplier_id=None, notes=None)`. Inserts into
-   `inventory_batches` and updates `atc_inventory.current_stock` to
-   `SUM(quantity) WHERE returned=0` for that ATC.
-2. New page `spis/dashboard/pages/5_Receive_Stock.py`:
-   - Form fields: ATC code (dropdown with drug names), batch number
-     (auto-suggest `LOT-YYYY-NNN` based on max existing), quantity, unit cost,
-     expiry date (default today + 18 months), supplier (if section 9 done; else free text).
-   - On submit -> `add_batch(...)` -> success banner -> clear caches -> `st.rerun()`.
-   - Below the form: table of recent receipts (last 30 days), sorted by received_date desc.
-3. Decide: do we refactor `current_stock` to be derived (SUM of batches)? **Recommended yes**
-   for consistency, but if time-tight, keep it as a column AND update it inside `add_batch`.
-   Document the decision in `docs/project_summary.txt`.
-4. Audit log: append to `data/stock_audit.csv` with action="RECEIVE".
-
-**Files:** `spis/data/database.py`, `spis/dashboard/pages/5_Receive_Stock.py` (new),
-`spis/dashboard/_shared.py` (cache invalidation helper), `tests/test_database.py`.
-**Tests:** 5+ tests for `add_batch` — happy path, duplicate batch_number rejection,
-negative quantity rejection, expiry-in-past warning, current_stock recomputation.
-**Done when:** a pharmacist can demo "we received 200 units of Paracetamol, lot LOT-2026-099,
-expires 2027-12-31" and see it appear on Overview within 5 seconds.
-
----
-
-## 5. Batch code surfacing + Recall demo  [0.5 day]  Rating 9/10
-
-**Why:** lot-level recall is a real regulatory requirement and a striking demo.
-
-**Approach:**
-1. Surface `batch_number` everywhere it's missing:
-   - Stock audit log (`data/stock_audit.csv`): add `batch_number` column.
-   - Expiry table: confirm `batch_number` is shown (it should be); if not, add column.
-   - PO PDF (when section 9 lands) and notification messages reference batch codes.
-2. New section on `pages/5_Receive_Stock.py` (or its own small page if cleaner):
-   **"Recall a Batch"** — input: batch_number; on submit, set `quantity=0`,
-   `returned=1`, `notes` appended with timestamp + recall reason.
-   Add helper `spis/data/database.py:recall_batch(db_path, batch_number, reason)`.
-3. After recall, recompute aggregate stock and show a confirmation that lists how many
-   units were withdrawn.
-
-**Files:** `spis/data/database.py`, `spis/dashboard/pages/5_Receive_Stock.py`,
-`spis/dashboard/pages/2_Stock_Update.py` (audit columns), `tests/test_database.py`.
-**Tests:** 3 tests for `recall_batch` — happy path, unknown batch_number rejection, idempotency.
-**Done when:** demo can recall LOT-2026-002, show the batch is zeroed in expiry view,
-and aggregate R06 stock has dropped accordingly.
-
----
-
 ## 6. Notification Center (low stock + expiry alerts)  [1 day]  Rating 8/10
 
 **Why:** turns the dashboard from passive ("here are tier counts") to active
@@ -239,5 +185,5 @@ credibility and pulls scope outside "inventory system." Add a paragraph in
 
 ## Status snapshot
 
-- Total items pending: 7 (items 1, 2, 3 done; refill reminders deferred, not counted)
+- Total items pending: 5 (items 1, 2, 3, 4, 5 done; refill reminders deferred, not counted)
 - Last updated: 2026-05-06

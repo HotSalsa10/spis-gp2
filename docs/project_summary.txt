@@ -690,16 +690,45 @@ ITEMS COMPLETED
         Bar chart: potential waste in SAR per ATC code (red bars, hover shows drugs)
     - 13 new tests in tests/test_expiry_finance.py (all pass)
 
+  Item 4 -- Receive Stock page (register incoming shipments)
+    - New function: spis/data/database.py:add_batch(db_path, atc_code,
+      batch_number, quantity, unit_cost, expiry_date, notes="")
+        Validates quantity > 0, unit_cost >= 0, YYYY-MM-DD date, unique batch_number.
+        Inserts into inventory_batches, increments atc_inventory.current_stock by
+        quantity (delta approach -- preserves pre-batch seed stock).
+        Appends RECEIVE entry to data/stock_audit.csv.
+    - New page: spis/dashboard/pages/5_Receive_Stock.py
+        Section 1: form -- ATC dropdown with drug names, batch number
+        (auto-suggested LOT-YYYY-NNN from max existing), quantity, unit cost,
+        expiry date (default today + 18 months), notes.
+        Section 2: table of batches received in the last 30 days.
+    - 7 new tests in tests/test_database.py for add_batch:
+        happy path, stock recomputation, duplicate rejection, negative quantity,
+        zero quantity, invalid date, past-expiry UserWarning.
+
+  Item 5 -- Batch code surfacing + Recall demo
+    - New function: spis/data/database.py:recall_batch(db_path, batch_number, reason)
+        Sets quantity=0, returned=1, appends "RECALLED <ts>: <reason>" to notes.
+        Decrements atc_inventory.current_stock by recalled qty (MAX 0 floor).
+        Appends RECALL entry to data/stock_audit.csv.
+        Returns float: units recalled.
+    - Recall section added to pages/5_Receive_Stock.py:
+        Input: batch number + reason; success banner shows units withdrawn.
+    - pages/2_Stock_Update.py: audit header updated to include action and
+      batch_number columns (manual edits write action="MANUAL", batch_number="").
+    - data/stock_audit.csv new column layout:
+        timestamp, atc_code, action, batch_number, old_stock, new_stock, delta
+    - 3 new tests in tests/test_database.py for recall_batch:
+        happy path (quantity zeroed, stock decremented), unknown batch rejection,
+        idempotency (second recall returns 0 units, no error).
+
 CURRENCY
   All monetary values displayed in SAR (Saudi Riyals).
 
 TEST SUITE
-  101 tests total, all passing.
+  124 tests total, all passing.
 
 ITEMS PENDING (see PHASE9.md for full details)
-  3. Expiry loss financial summary panel
-  4. Receive Stock page (add new batch)
-  5. Batch code surfacing + Recall demo
   6. Notification Center (low stock + expiry alerts)
   7. Seasonal decomposition + YoY chart
   8. Manage Catalog (add drug + add ATC)
@@ -723,5 +752,6 @@ PROJECT COMPLETE
     Phase 8    -- GP Report (7 chapters, IEEE references)
     Phase 8.5  -- Multi-page dashboard, expiry advisor, stock editor,
                   analytics charts (93 tests total)
-    Phase 9    -- Drug-name labels on all pages, Fast/Medium/Slow movers
-                  renaming (101 tests total, 8 items remaining)
+    Phase 9    -- Drug-name labels, Fast/Medium/Slow movers rename,
+                  expiry finance panel, receive stock + recall pages
+                  (124 tests total, 5 items remaining)

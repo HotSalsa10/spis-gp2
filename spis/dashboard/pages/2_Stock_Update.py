@@ -27,7 +27,7 @@ from spis.dashboard._shared import (
 )
 
 AUDIT_LOG = ROOT / "data" / "stock_audit.csv"
-_AUDIT_HEADER = ["timestamp", "atc_code", "old_stock", "new_stock", "delta"]
+_AUDIT_HEADER = ["timestamp", "atc_code", "action", "batch_number", "old_stock", "new_stock", "delta"]
 
 
 def _append_audit(entries: list[dict]) -> None:
@@ -140,11 +140,13 @@ if submitted:
             now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             _append_audit([
                 {
-                    "timestamp": now,
-                    "atc_code": code,
-                    "old_stock": inventory[code],
-                    "new_stock": val,
-                    "delta": val - inventory[code],
+                    "timestamp":    now,
+                    "atc_code":     code,
+                    "action":       "MANUAL",
+                    "batch_number": "",
+                    "old_stock":    inventory[code],
+                    "new_stock":    val,
+                    "delta":        val - inventory[code],
                 }
                 for code, val in changed.items()
             ])

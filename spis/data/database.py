@@ -14,7 +14,10 @@ Usage:
     init_db("data/inventory.db")
 """
 
+import csv
 import sqlite3
+import warnings
+from datetime import date as _date, datetime, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -357,6 +360,174 @@ def load_batches(db_path: str | Path) -> list[dict]:
                ORDER BY expiry_date"""
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def add_batch(
+    db_path: str | Path,
+    atc_code: str,
+    batch_number: str,
+    quantity: float,
+    unit_cost: float,
+    expiry_date: str,
+    notes: str = "",
+) -> None:
+    """
+    Insert a new received batch and recompute aggregate stock for that ATC code.
+
+    Args:
+        db_path     : Path to the SQLite database.
+        atc_code    : ATC-4 code the batch belongs to.
+        batch_number: Unique lot identifier (e.g. LOT-2026-099).
+        quantity    : Number of units received (must be > 0).
+        unit_cost   : Cost per unit in SAR (must be >= 0).
+        expiry_date : Expiry date string in YYYY-MM-DD format.
+        notes       : Optional free-text notes.
+
+    Raises:
+        ValueError: quantity <= 0, unit_cost < 0, invalid date, duplicate batch_number.
+    """
+    if quantity <= 0:
+        raise ValueError(f"Quantity must be positive: {quantity}")
+    if unit_cost < 0:
+        raise ValueError(f"Unit cost cannot be negative: {unit_cost}")
+    try:
+        parsed_expiry = _date.fromisoformat(str(expiry_date))
+    except ValueError:
+        raise ValueError(f"Invalid expiry date (expected YYYY-MM-DD): {expiry_date}")
+    if parsed_expiry < _date.today():
+        warnings.warn(
+            f"Expiry date {expiry_date} is in the past. "
+            "Batch will be immediately eligible for write-off.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    db_path = Path(db_path)
+    old_stock = 0.0
+    new_stock = quantity
+
+    with sqlite3.connect(db_path) as conn:
+        dup = conn.execute(
+            "SELECT batch_id FROM inventory_batches WHERE batch_number=?",
+            (batch_number,),
+        ).fetchone()
+        if dup:
+            raise ValueError(f"Batch number already exists: {batch_number}")
+
+        old_row = conn.execute(
+            "SELECT current_stock FROM atc_inventory WHERE atc_code=?",
+            (atc_code,),
+        ).fetchone()
+        old_stock = old_row[0] if old_row else 0.0
+
+        conn.execute(
+            """INSERT INTO inventory_batches
+                   (atc_code, batch_number, quantity, unit_cost, expiry_date, received_date, notes)
+               VALUES (?, ?, ?, ?, ?, CURRENT_DATE, ?)""",
+            (atc_code, batch_number, quantity, unit_cost, str(expiry_date), notes),
+        )
+        conn.execute(
+            """UPDATE atc_inventory
+               SET current_stock = current_stock + ?,
+                   last_updated = CURRENT_TIMESTAMP
+               WHERE atc_code = ?""",
+            (quantity, atc_code),
+        )
+        new_row = conn.execute(
+            "SELECT current_stock FROM atc_inventory WHERE atc_code=?",
+            (atc_code,),
+        ).fetchone()
+        new_stock = new_row[0] if new_row else (old_stock + quantity)
+        conn.commit()
+
+    _append_batch_audit(db_path, atc_code, "RECEIVE", batch_number, old_stock, new_stock, quantity)
+
+
+def recall_batch(db_path: str | Path, batch_number: str, reason: str) -> float:
+    """
+    Withdraw a faulty batch: zero its quantity, mark returned=1, recompute stock.
+
+    Args:
+        db_path     : Path to the SQLite database.
+        batch_number: Lot identifier to recall.
+        reason      : Human-readable recall reason appended to batch notes.
+
+    Returns:
+        Number of units that were recalled (0.0 if already recalled).
+
+    Raises:
+        ValueError: batch_number not found.
+    """
+    db_path = Path(db_path)
+    old_stock = 0.0
+    new_stock = 0.0
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT atc_code, quantity, notes FROM inventory_batches WHERE batch_number=?",
+            (batch_number,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Unknown batch number: {batch_number}")
+
+        atc_code, qty, old_notes = row
+
+        old_row = conn.execute(
+            "SELECT current_stock FROM atc_inventory WHERE atc_code=?",
+            (atc_code,),
+        ).fetchone()
+        old_stock = old_row[0] if old_row else 0.0
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        suffix = f"RECALLED {ts}: {reason}"
+        new_notes = ((old_notes or "").rstrip("; ") + "; " + suffix).lstrip("; ")
+
+        conn.execute(
+            """UPDATE inventory_batches
+               SET quantity = 0, returned = 1, notes = ?
+               WHERE batch_number = ?""",
+            (new_notes, batch_number),
+        )
+        conn.execute(
+            """UPDATE atc_inventory
+               SET current_stock = MAX(0, current_stock - ?),
+                   last_updated = CURRENT_TIMESTAMP
+               WHERE atc_code = ?""",
+            (qty, atc_code),
+        )
+        new_row = conn.execute(
+            "SELECT current_stock FROM atc_inventory WHERE atc_code=?",
+            (atc_code,),
+        ).fetchone()
+        new_stock = new_row[0] if new_row else 0.0
+        conn.commit()
+
+    _append_batch_audit(db_path, atc_code, "RECALL", batch_number, old_stock, new_stock, -qty)
+    return qty
+
+
+_BATCH_AUDIT_HEADER = [
+    "timestamp", "atc_code", "action", "batch_number", "old_stock", "new_stock", "delta",
+]
+
+
+def _append_batch_audit(
+    db_path: Path,
+    atc_code: str,
+    action: str,
+    batch_number: str,
+    old_stock: float,
+    new_stock: float,
+    delta: float,
+) -> None:
+    audit_path = db_path.parent / "stock_audit.csv"
+    write_header = not audit_path.exists()
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with open(audit_path, "a", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(_BATCH_AUDIT_HEADER)
+        writer.writerow([ts, atc_code, action, batch_number, old_stock, new_stock, delta])
 
 
 def save_batch_overrides(
