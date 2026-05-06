@@ -22,43 +22,6 @@
 
 ---
 
-## 6. Notification Center (low stock + expiry alerts)  [1 day]  Rating 8/10
-
-**Why:** turns the dashboard from passive ("here are tier counts") to active
-("you have 3 unacknowledged alerts").
-
-**Approach:**
-1. New table in `spis/data/database.py`:
-   ```
-   alerts (
-       alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
-       alert_type TEXT,  -- 'LOW_STOCK' | 'EXPIRY' | 'RECALL'
-       atc_code TEXT,
-       batch_number TEXT,  -- nullable
-       severity TEXT,  -- 'CRITICAL' | 'WARNING' | 'INFO'
-       message TEXT,
-       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-       acknowledged_at TEXT  -- nullable
-   )
-   ```
-2. Helper `spis/models/alert_engine.py` — pure functions that take risk
-   assessments + expiry assessments and emit a list of `Alert` dataclasses.
-   Idempotent: if an open alert already exists for the same key, skip.
-3. New page `spis/dashboard/pages/6_Alerts.py`:
-   - Top: count tiles (open / critical / warnings).
-   - Feed: timestamped alert rows, severity badge, "Acknowledge" button per row.
-   - Filter: severity + alert_type + acknowledged toggle.
-4. Run `alert_engine.refresh()` whenever the dashboard loads or when stock/batches change.
-
-**Files:** `spis/data/database.py` (alerts table + helpers), `spis/models/alert_engine.py` (new),
-`spis/dashboard/pages/6_Alerts.py` (new), `tests/test_alert_engine.py` (new).
-**Tests:** 8+ tests — generation from each risk tier, dedup behaviour, acknowledge flow,
-expiry-driven alerts.
-**Done when:** changing stock to 5 units triggers a CRITICAL alert visible on Alerts page,
-and acknowledging it removes it from "open" count.
-
----
-
 ## 7. Seasonal decomposition + YoY chart  [1 day]  Rating 8/10
 
 **Why:** looks like a Bloomberg terminal — non-technical reviewers read this as "smart."
@@ -185,5 +148,5 @@ credibility and pulls scope outside "inventory system." Add a paragraph in
 
 ## Status snapshot
 
-- Total items pending: 5 (items 1, 2, 3, 4, 5 done; refill reminders deferred, not counted)
+- Total items pending: 4 (items 1, 2, 3, 4, 5, 6 done; refill reminders deferred, not counted)
 - Last updated: 2026-05-06

@@ -3,11 +3,13 @@ spis/data/database.py
 ---------------------
 Initialises the SPIS SQLite database schema and seeds the ATC / drug reference data.
 
-Schema (4 tables):
+Schema (6 tables):
     atc_categories  — ATC-4 classification reference (8 rows)
     drugs           — Clinical drug catalog (57 rows)
     sales           — Time-series fact table (rows inserted by ingest_kaggle.py)
     atc_inventory   — Current stock level per ATC code (Phase 4)
+    inventory_batches — Per-batch expiry and cost tracking (Phase 8.5)
+    alerts          — Notification alerts for low stock and expiry events (Phase 9)
 
 Usage:
     from spis.data.database import init_db
@@ -261,6 +263,18 @@ def _create_tables(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_batches_atc_expiry
             ON inventory_batches (atc_code, expiry_date);
+
+        -- Notification alerts for low-stock and expiry events (Phase 9 Item 6)
+        CREATE TABLE IF NOT EXISTS alerts (
+            alert_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            alert_type      TEXT NOT NULL,   -- 'LOW_STOCK' | 'EXPIRY' | 'RECALL'
+            atc_code        TEXT,
+            batch_number    TEXT,            -- nullable; used for EXPIRY/RECALL alerts
+            severity        TEXT NOT NULL,   -- 'CRITICAL' | 'WARNING' | 'INFO'
+            message         TEXT NOT NULL,
+            created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            acknowledged_at TEXT            -- NULL means open; ISO timestamp when acked
+        );
     """)
 
 
@@ -305,10 +319,12 @@ def _print_summary(db_path: Path) -> None:
         crit_n   = conn.execute("SELECT COUNT(*) FROM drugs WHERE is_critical=1").fetchone()[0]
         inv_n    = conn.execute("SELECT COUNT(*) FROM atc_inventory").fetchone()[0]
         batch_n  = conn.execute("SELECT COUNT(*) FROM inventory_batches").fetchone()[0]
+        alert_n  = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
     print(f"[database]   atc_categories    : {atc_n:>4} rows")
     print(f"[database]   drugs             : {drug_n:>4} rows  ({crit_n} critical)")
     print(f"[database]   atc_inventory     : {inv_n:>4} rows  (Phase 4 stock levels)")
     print(f"[database]   inventory_batches : {batch_n:>4} rows  (Phase 8.5 expiry tracking)")
+    print(f"[database]   alerts            : {alert_n:>4} rows  (Phase 9 notification center)")
     print(f"[database]   sales             :    0 rows  (populated by ingest_kaggle.py)")
 
 
@@ -528,6 +544,145 @@ def _append_batch_audit(
         if write_header:
             writer.writerow(_BATCH_AUDIT_HEADER)
         writer.writerow([ts, atc_code, action, batch_number, old_stock, new_stock, delta])
+
+
+# ---------------------------------------------------------------------------
+# Public helpers — alert management (Phase 9 Item 6)
+# ---------------------------------------------------------------------------
+
+
+def _ensure_alerts_table(conn: sqlite3.Connection) -> None:
+    """Create the alerts table if it does not yet exist (migration guard)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS alerts (
+            alert_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            alert_type      TEXT NOT NULL,
+            atc_code        TEXT,
+            batch_number    TEXT,
+            severity        TEXT NOT NULL,
+            message         TEXT NOT NULL,
+            created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            acknowledged_at TEXT
+        )
+    """)
+
+
+def create_alert(
+    db_path: str | Path,
+    alert_type: str,
+    atc_code: str | None,
+    batch_number: str | None,
+    severity: str,
+    message: str,
+) -> int:
+    """
+    Insert a new alert row and return the new alert_id.
+
+    Args:
+        db_path     : Path to the SQLite database.
+        alert_type  : 'LOW_STOCK', 'EXPIRY', or 'RECALL'.
+        atc_code    : ATC-4 code (None for alerts not tied to a single code).
+        batch_number: Batch identifier (None for LOW_STOCK alerts).
+        severity    : 'CRITICAL', 'WARNING', or 'INFO'.
+        message     : Human-readable alert text.
+
+    Returns:
+        The integer alert_id of the newly created row.
+    """
+    db_path = Path(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _ensure_alerts_table(conn)
+        cur = conn.execute(
+            """INSERT INTO alerts (alert_type, atc_code, batch_number, severity, message)
+               VALUES (?, ?, ?, ?, ?)""",
+            (alert_type, atc_code, batch_number, severity, message),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def alert_key_exists(
+    db_path: str | Path,
+    alert_type: str,
+    atc_code: str | None,
+    batch_number: str | None,
+) -> bool:
+    """
+    Return True if an open (unacknowledged) alert with the same
+    (alert_type, atc_code, batch_number) already exists.
+
+    Used to keep the alerts table free of duplicates for the same event.
+    """
+    db_path = Path(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _ensure_alerts_table(conn)
+        row = conn.execute(
+            """SELECT 1 FROM alerts
+               WHERE alert_type = ?
+                 AND COALESCE(atc_code, '')     = COALESCE(?, '')
+                 AND COALESCE(batch_number, '') = COALESCE(?, '')
+                 AND acknowledged_at IS NULL
+               LIMIT 1""",
+            (alert_type, atc_code, batch_number),
+        ).fetchone()
+    return row is not None
+
+
+def get_open_alerts(db_path: str | Path) -> list[dict]:
+    """
+    Return all unacknowledged alerts sorted by created_at descending.
+
+    Each dict contains: alert_id, alert_type, atc_code, batch_number,
+    severity, message, created_at, acknowledged_at.
+    """
+    db_path = Path(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _ensure_alerts_table(conn)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT alert_id, alert_type, atc_code, batch_number,
+                      severity, message, created_at, acknowledged_at
+               FROM alerts
+               WHERE acknowledged_at IS NULL
+               ORDER BY created_at DESC"""
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_all_alerts(db_path: str | Path) -> list[dict]:
+    """
+    Return all alerts (open and acknowledged) sorted by created_at descending.
+    """
+    db_path = Path(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _ensure_alerts_table(conn)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT alert_id, alert_type, atc_code, batch_number,
+                      severity, message, created_at, acknowledged_at
+               FROM alerts
+               ORDER BY created_at DESC"""
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def acknowledge_alert(db_path: str | Path, alert_id: int) -> None:
+    """
+    Mark an alert as acknowledged by setting acknowledged_at to the current UTC time.
+
+    Args:
+        db_path  : Path to the SQLite database.
+        alert_id : The alert_id to acknowledge.
+    """
+    db_path = Path(db_path)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with sqlite3.connect(db_path) as conn:
+        _ensure_alerts_table(conn)
+        conn.execute(
+            "UPDATE alerts SET acknowledged_at = ? WHERE alert_id = ?",
+            (ts, alert_id),
+        )
+        conn.commit()
 
 
 def save_batch_overrides(

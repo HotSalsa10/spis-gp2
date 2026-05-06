@@ -725,11 +725,38 @@ ITEMS COMPLETED
 CURRENCY
   All monetary values displayed in SAR (Saudi Riyals).
 
+  Item 6 -- Notification Center (low stock + expiry alerts)
+    - New alerts table in SQLite (alert_id, alert_type, atc_code,
+      batch_number, severity, message, created_at, acknowledged_at).
+    - New module: spis/models/alert_engine.py
+        Alert frozen dataclass (alert_type, atc_code, batch_number,
+        severity, message).
+        alerts_from_risk(assessments) -> list[Alert]: CRITICAL tier ->
+        LOW_STOCK/CRITICAL, LOW tier -> LOW_STOCK/WARNING; OK/OVERSTOCK
+        produce no alerts.
+        alerts_from_expiry(offers) -> list[Alert]: write_off -> CRITICAL,
+        return_to_supplier -> WARNING, promote <=30d -> WARNING,
+        promote >30d -> INFO, action='none' skipped.
+        refresh(db_path, assessments, offers) -> int: idempotent
+        orchestrator; skips candidates whose open alert already exists.
+    - New DB helpers in spis/data/database.py:
+        create_alert(), alert_key_exists(), get_open_alerts(),
+        get_all_alerts(), acknowledge_alert().
+    - New page: spis/dashboard/pages/6_Alerts.py
+        Top: three count tiles (Open Alerts / Critical / Warnings).
+        Feed: timestamped rows with severity badges, type label, message,
+        and per-row "Ack" button; acknowledging calls acknowledge_alert()
+        then st.rerun().
+        Sidebar filters: severity, alert type, show-acknowledged toggle.
+    - 15 new tests in tests/test_alert_engine.py (all pass).
+
+CURRENCY
+  All monetary values displayed in SAR (Saudi Riyals).
+
 TEST SUITE
-  124 tests total, all passing.
+  139 tests total, all passing.
 
 ITEMS PENDING (see PHASE9.md for full details)
-  6. Notification Center (low stock + expiry alerts)
   7. Seasonal decomposition + YoY chart
   8. Manage Catalog (add drug + add ATC)
   9. Suppliers + Purchase Order PDF
@@ -753,5 +780,6 @@ PROJECT COMPLETE
     Phase 8.5  -- Multi-page dashboard, expiry advisor, stock editor,
                   analytics charts (93 tests total)
     Phase 9    -- Drug-name labels, Fast/Medium/Slow movers rename,
-                  expiry finance panel, receive stock + recall pages
-                  (124 tests total, 5 items remaining)
+                  expiry finance panel, receive stock + recall pages,
+                  notification center / alert engine
+                  (139 tests total, 4 items remaining)
