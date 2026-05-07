@@ -29,6 +29,7 @@ from spis.dashboard._shared import (
     load_drugs,
     run_assessment,
 )
+from spis.models.inventory_kpi import compute_turnover
 
 TIER_COLOR = {
     "CRITICAL":  "#ef233c",
@@ -257,22 +258,31 @@ st.divider()
 st.subheader("Medications by ATC Group")
 st.caption("Risk tier and order quantity are inherited from the parent ATC code group")
 
-drugs_df  = load_drugs(str(DB_PATH))
-ra_by_atc = {ra.atc_code: ra for ra in results}
+drugs_df    = load_drugs(str(DB_PATH))
+ra_by_atc   = {ra.atc_code: ra for ra in results}
+turnover_map = compute_turnover(str(DB_PATH))
 
 med_rows = []
 for _, drug in drugs_df.iterrows():
     ra = ra_by_atc.get(drug["atc_code"])
     if ra is None:
         continue
+    kpi = turnover_map.get(drug["atc_code"], {})
+    turnover_val   = kpi.get("turnover", 0.0)
+    turnover_label = kpi.get("classification", "N/A")
     med_rows.append({
         "Drug Name": drug["drug_name"],
         "ATC Code":  drug["atc_code"],
         "Unit":      drug["unit"],
         "Risk":      ra.risk_tier,
         "Order Qty": round(ra.order_qty, 1),
+        "Turnover":  f"{turnover_val:.1f}x  {turnover_label}",
     })
 
+st.caption(
+    "Turnover = annual units sold / current stock.  "
+    "Thresholds: Slow <4x | Low 4-6x | Healthy 6-12x | High 12-24x | Excessive >24x"
+)
 st.dataframe(
     pd.DataFrame(med_rows),
     use_container_width=True,

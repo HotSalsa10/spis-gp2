@@ -18,6 +18,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from spis.models.decomposition import decompose
+from spis.models.inventory_kpi import compute_turnover
 
 # ABC classification cutoffs (cumulative demand %)
 ABC_A_CUTOFF = 80
@@ -402,3 +403,50 @@ if FEATURES_CSV.exists():
     st.plotly_chart(fig_trend, use_container_width=True)
 else:
     st.warning("Features CSV not found — run `scripts/run_pipeline.py` to generate it.")
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Panel 6 — Inventory turnover KPI strip
+# ---------------------------------------------------------------------------
+
+st.subheader("Inventory Turnover Ratio")
+st.caption(
+    "Turnover = annual units sold / current on-hand stock.  "
+    "Thresholds: Slow <4x | Low 4-6x | Healthy 6-12x | High 12-24x | Excessive >24x"
+)
+
+turnover_data = compute_turnover(str(DB_PATH))
+if turnover_data:
+    turnover_vals = [v["turnover"] for v in turnover_data.values()]
+    avg_t = sum(turnover_vals) / len(turnover_vals)
+    min_t = min(turnover_vals)
+    max_t = max(turnover_vals)
+
+    tk1, tk2, tk3 = st.columns(3)
+    tk1.metric("Avg Turnover", f"{avg_t:.1f}x")
+    tk2.metric("Min Turnover", f"{min_t:.1f}x")
+    tk3.metric("Max Turnover", f"{max_t:.1f}x")
+
+    t_rows = [
+        {
+            "ATC Code":      code,
+            "Units Sold (yr)": v["units_sold"],
+            "Avg Inventory": v["avg_inventory"],
+            "Turnover (x)":  v["turnover"],
+            "Class":         v["classification"],
+        }
+        for code, v in sorted(turnover_data.items())
+    ]
+    st.dataframe(
+        pd.DataFrame(t_rows),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Units Sold (yr)": st.column_config.NumberColumn("Units Sold (yr)", format="%.0f"),
+            "Avg Inventory":   st.column_config.NumberColumn("Avg Inventory",   format="%.1f"),
+            "Turnover (x)":    st.column_config.NumberColumn("Turnover (x)",    format="%.2f"),
+        },
+    )
+else:
+    st.info("No inventory data available. Run `scripts/ingest_kaggle.py` to populate sales.")

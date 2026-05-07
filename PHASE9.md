@@ -22,42 +22,6 @@
 
 ---
 
-## 10. Inventory turnover ratio  [0.5 day]  Rating 7/10
-
-**Why:** real pharmacy KPI. Adds a second analytical lens beyond DoS tier.
-
-**Approach:**
-1. Helper `spis/models/inventory_kpi.py:compute_turnover(db_path, period_days=365)`:
-   Returns `{atc_code: {"units_sold": float, "avg_inventory": float, "turnover": float,
-   "classification": str}}` where classification is `Healthy 6-12x | Slow <4 | Excessive >24`.
-2. Surface in two places:
-   - Overview medications table: new "Turnover" column with classification badge.
-   - Analytics page: new KPI strip with avg/min/max turnover across ATC codes.
-3. Tooltip / caption explains the formula and thresholds.
-
-**Files:** `spis/models/inventory_kpi.py` (new), `tests/test_inventory_kpi.py` (new),
-`spis/dashboard/app.py`, `spis/dashboard/pages/4_Analytics.py`.
-**Tests:** 5 tests -- turnover formula, classification thresholds, empty-period handling,
-zero-inventory edge case, multi-ATC aggregation.
-**Done when:** every drug in the medications table has a turnover number and a Healthy/Slow/Excessive label.
-
----
-
-## 11. Refill reminders -- DEFERRED to Future Work
-
-**Do not build.** The data model has no patient/customer entity; faking one weakens
-credibility and pulls scope outside "inventory system." Add a paragraph in
-`docs/report/ch7_conclusion.md` (or wherever the Future Work section lives):
-
-> *"Prescription refill reminders require integration with a patient management
-> system and a notification gateway (SMS/email), both outside the inventory MVP scope.
-> The forecasting and risk modules in SPIS provide the supply-side foundation that a
-> future patient-facing module would consume."*
-
-**Done when:** Future Work paragraph is added to Chapter 7.
-
----
-
 ## After every item
 
 - Update `docs/project_summary.txt` (team reads this to stay in sync).
@@ -69,5 +33,5 @@ credibility and pulls scope outside "inventory system." Add a paragraph in
 
 ## Status snapshot
 
-- Total items pending: 1 (items 1-9 done; refill reminders deferred, not counted)
+- Total items pending: 0 (items 1-10 done; refill reminders deferred to ch7 Future Work)
 - Last updated: 2026-05-07

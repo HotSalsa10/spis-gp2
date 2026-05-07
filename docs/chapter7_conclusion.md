@@ -97,6 +97,9 @@ Extend Streamlit to mobile-responsive HTML (React Native or Flutter). Add Slack/
 ### 5. Transfer Learning Across Hospital Sites
 Train a master forecaster on aggregated multi-site data, then fine-tune on each hospital's local sales (few-shot transfer learning). Reduces cold-start problem for new pharmacy sites. Implementation: XGBoost with warmstart parameter, or PyTorch neural network with pre-training.
 
+### 6. Prescription Refill Reminders
+Prescription refill reminders require integration with a patient management system and a notification gateway (SMS/email), both outside the inventory MVP scope. The forecasting and risk modules in SPIS provide the supply-side foundation that a future patient-facing module would consume. A refill-reminder service would subscribe to the existing alert engine, listen for CRITICAL/LOW stock events on chronic-medication ATC codes, and cross-reference a patient prescription database to surface which patients are at risk of running short before their next scheduled refill.
+
 ---
 
 ## 7.6 Reflections

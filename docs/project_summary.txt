@@ -821,11 +821,25 @@ CURRENCY
   All monetary values displayed in SAR (Saudi Riyals).
 
 TEST SUITE
-  168 tests total, all passing.
+  173 tests total, all passing.
 
-ITEMS PENDING (see PHASE9.md for full details)
-  10. Inventory turnover ratio
-  11. Refill reminders (deferred to Future Work paragraph)
+  Item 10 -- Inventory turnover ratio
+    - New module: spis/models/inventory_kpi.py
+        compute_turnover(db_path, period_days=365) -> dict:
+        {atc_code: {units_sold, avg_inventory, turnover, classification}}
+        Turnover = units_sold_in_period / current_stock (proxy for avg inventory).
+        Classification tiers: Slow <4x | Low 4-6x | Healthy 6-12x | High 12-24x | Excessive >24x
+    - spis/dashboard/app.py: Medications table gets a "Turnover" column
+        (e.g., "10.0x  Healthy") + caption explaining formula and thresholds.
+    - spis/dashboard/pages/4_Analytics.py: new Panel 6 "Inventory Turnover Ratio"
+        three st.metric boxes (Avg / Min / Max turnover) + detailed table per ATC code.
+    - 5 new tests in tests/test_inventory_kpi.py (all pass):
+        turnover formula, classification thresholds, empty-period handling,
+        zero-inventory edge case, multi-ATC aggregation.
+
+  Item 11 -- Refill reminders (deferred to Future Work)
+    - No code built (patient entity absent from data model).
+    - Future Work paragraph added to docs/chapter7_conclusion.md Section 7.5.
 
 
 ========================================================================
@@ -848,5 +862,6 @@ PROJECT COMPLETE
                   notification center / alert engine,
                   seasonal decomposition + YoY chart,
                   manage catalog page (add drug + add ATC),
-                  suppliers + purchase order PDF with download + history
-                  (168 tests total, 1 item remaining)
+                  suppliers + purchase order PDF with download + history,
+                  inventory turnover ratio KPI, refill reminders deferred
+                  (173 tests total, all items complete)
