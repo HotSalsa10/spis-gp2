@@ -335,3 +335,101 @@ the biggest committee-visible deductions).
 - **Don't rewrite Ch2's literature review.** It's solid and
   implementation-agnostic; the only required change is item A3 (proper
   chapter conclusion).
+
+---
+
+# IMPORTANT UPDATE — after reading the actual GP1 PDF (`M27_GP1.pdf`)
+
+The fix list above was written before the actual GP1 submission PDF
+was reviewed. That PDF differs substantially from the markdown chapters
+in `docs/chapter1-3.md`. Several items in the original list are no
+longer required, and the priority order changes.
+
+The decisive finding is in `report_consistency_review.md` Part 3:
+**the GP1 PDF is the document the committee accepted, not the repo's
+chapter1-3.md files.** The two are parallel drafts that diverged.
+
+## Items that drop off the list because the GP1 PDF already has them
+
+| Item ID | Original task | Why dropped |
+|---|---|---|
+| **A2** | Add Team Qualifications mini-resumes in Ch1 | GP1 PDF Table 1 already has a per-member skills matrix. Could still be deepened (training / coursework / prior projects) but no longer a "missing section" |
+| **A3** | Add chapter Conclusions to Ch1 and Ch2 | GP1 PDF Ch1.6 and Ch2.4 are full conclusion sections |
+| **A5** | Resolve risk-tier contradiction (3/7/30 vs 7/14/90) | The numbers `<3, <7, <30, ≥30` exist only in the repo's `chapter3_requirements.md`, not in the GP1 PDF. The PDF describes tiers qualitatively, so there is no committee-visible contradiction |
+| **A7** | Update phase table in Ch1 | GP1 PDF uses a Gantt chart (Figure 1), not a phase table — and the chart is at the GP1 level. Add a Phase 8.5 / Phase 9 row only if you rebuild the Gantt for GP2 final |
+| **B2** | Gantt chart in Ch1 / Ch3 | GP1 PDF Figure 1 already has the Gantt. Only required for GP2 if the chart is regenerated to include Phase 8.5 / Phase 9 |
+| **A1** | Consolidate references | GP1 PDF already has one IEEE list at the end of Ch3 (23 entries). The task becomes: extend that single list with Ch4-7 citations, rather than building a list from scratch |
+
+## Items that remain — even with the GP1 PDF in hand
+
+These are still genuinely needed because the GP1 PDF doesn't address
+them, or because they touch GP2-only chapters:
+
+- **A4 Elicitation paragraph in Ch3.** GP1 PDF doesn't state whether
+  requirements came from interviews, observation, advisor input, or
+  literature review. Still needed.
+- **A6 Phase 9 / Design Evolution paragraph at top of Ch5.** GP1 PDF's
+  Ch3 module-FR tables cover Data, Forecasting, Risk, Dashboard, and
+  Security only — they do not anticipate expiry advisor, alerts,
+  suppliers, POs, batch receive/recall, catalog management. A short
+  paragraph at the start of Ch5 acknowledging the scope expansion
+  remains the cheapest and clearest way to close that gap.
+- **B1 Use case diagram in Ch3.** Still missing from the GP1 PDF —
+  only descriptions in §3.4 / §3.5, no UML diagram.
+- **B3 Alternative Designs/Methods section in Ch4.** Ch4 doesn't
+  exist in the GP1 PDF at all; this needs to be written as part of
+  the GP2 Design chapter.
+- **B4 Data dictionary in Ch4.** Same reason — Ch4 is new GP2 work.
+- **B5 NFR mapping to Figure 1 taxonomy.** GP1 PDF NFRs (Performance /
+  Usability / Reliability / Maintainability / Portability / Data
+  Integrity / Scalability) are close to but not aligned with the
+  committee's Product / Organizational / External taxonomy. A small
+  mapping paragraph fixes it without restructuring the table.
+- **C1–C8** — all Ch5 / Ch6 polish items remain (Hardware Requirements,
+  Deployment steps, GUI screenshots, path-testing label, tool comparison,
+  team-role consistency, sequence diagram, defects-table relocation).
+
+## New items the GP1 PDF surfaces
+
+- **N1. Decide which Ch1-3 is authoritative.** The repo currently
+  contains two parallel versions: the GP1 PDF and the
+  `docs/chapter1-3.md` markdowns. The team must pick one. **Strong
+  recommendation: keep the GP1 PDF as authoritative** (committee
+  already accepted it; no work to redo). Either delete the markdown
+  versions or clearly mark them as superseded.
+- **N2. Convert Ch1-3 to consistent format with Ch4-7.** If the final
+  bundle is a single PDF, the GP1 PDF content can stay as PDF and be
+  prepended to the Ch4-7 PDF. If the final bundle is markdown, the
+  PDF content needs to be converted (carefully, preserving Tables 1-10
+  and Figure 1).
+- **N3. Build Ch4 (Design) from scratch.** It is not in GP1 at all and
+  must include: system architecture diagram, communication pattern,
+  data dictionary, ERD with all 8 tables, modular decomposition,
+  system organisation (sequence + state + activity diagrams or DFD),
+  algorithm pseudocode, alternative designs, GUI design with
+  wireframes/mockups. The repo's current `docs/chapter4_design.md`
+  is a reasonable starting point but is missing several of these
+  per the Part 2 audit.
+- **N4. Reconcile Ch3 PDF references with new Ch4-7 references into
+  one list.** The PDF has 23 references; Ch5 currently cites 5; Ch1
+  and Ch7 also cite a few. Build one master IEEE list, renumber all
+  in-text citations.
+
+## Revised priority list
+
+**Highest priority (committee-visible):**
+1. **N1** — Decide and mark the authoritative Ch1-3 source.
+2. **N3** — Build Ch4 Design properly (largest piece of GP2 work).
+3. **A6** — Phase 9 scope-evolution paragraph in Ch5.
+4. **N4** — Consolidate references into one list.
+5. **B1** — Use case diagram for Ch3.
+6. **A4** — Elicitation paragraph in Ch3.
+
+**Medium priority:**
+7. **B5** — NFR taxonomy mapping note.
+8. **C1–C8** — Ch5 / Ch6 polish.
+
+**Low priority (only if extra time):**
+9. **A2 (revised)** — Deepen Team Qualifications from skill matrix
+   to mini-resumes.
+10. **A7 (revised)** — Regenerate Gantt to include Phase 8.5 / Phase 9.

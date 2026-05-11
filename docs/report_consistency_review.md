@@ -375,3 +375,139 @@ Style itself is fine where references exist — only the multi-list structure
 
 A concrete action list with file pointers and effort estimates is in the
 companion document `report_suggested_fixes.md`.
+
+---
+
+# Part 3 — Post-GP1-PDF Update (important)
+
+After parts 1 and 2 were written, the actual GP1 submission PDF
+(`M27_GP1.pdf`) was reviewed. Reading the PDF substantially changes the
+picture, because the markdown chapters in this repo
+(`docs/chapter1_introduction.md`, `chapter2_literature_review.md`,
+`chapter3_requirements.md`) are **a different document** from what the
+GP1 committee actually accepted. The two versions diverge in structure,
+content, and depth.
+
+## What the GP1 PDF actually contains
+
+- **Ch1.4 Project Timeline** — a real Gantt chart (Figure 1) covering
+  8 months across project planning, system design, system development,
+  machine learning, and testing/documentation. Tasks include data
+  exploration, UI/UX design, model training/deployment, forecasting
+  frontend, deployment and review.
+- **Ch1.5 Team Qualifications** — Table 1 with checkmarks per member
+  for Research & Analytical Skills, Problem Solving, Development,
+  Python, Testing.
+- **Ch1.6 Conclusion** — full paragraph summarising the chapter and
+  bridging to Ch2.
+- **Ch2.1 Introduction** — proper chapter introduction.
+- **Ch2.2 Background** with subsections 2.2.1 (Pharmacy Inventory
+  Management and Healthcare Supply Chains), 2.2.3 (Classical Time-Series
+  Forecasting Methods), 2.2.4 (Machine Learning Approaches for Demand
+  Forecasting), plus an inline 2.2.2 (Demand Forecasting and Inventory
+  Control in Healthcare).
+- **Ch2.3 Related Work** with three subsections: 2.3.1 Pharmaceutical
+  Demand Forecasting, 2.3.2 Drug Shortage Prediction, 2.3.3 AI-Driven
+  Inventory Decision Support and Dashboards.
+- **Ch2.4 Conclusion** — explicit conclusion that bridges to Ch3.
+- **Ch3** — organised differently from the markdown:
+  - 3.1 Introduction
+  - 3.2 System Overview and Context (Business Context, Operational Context)
+  - 3.3 Stakeholders and User Types (Table 2)
+  - 3.4 User Requirements (Table 3, 7 high-level user needs)
+  - 3.5 System Functional Requirements split by **module** (Tables 4-8):
+    Data Management, Forecasting Engine, Risk Analysis Logic,
+    Dashboard and Interaction, Security and Data Management
+  - 3.6 Non-Functional Requirements (Table 9) — Performance / Usability /
+    Reliability / Maintainability / Portability / Data Integrity /
+    Scalability
+  - 3.7 Assumptions and Constraints (Table 10)
+  - 3.8 Summary
+- **References** — single consolidated IEEE list (23 entries) at the
+  end of Ch3.
+
+## What this means for the earlier audit
+
+Several items I previously flagged as "missing" or "weak" are actually
+**present in the GP1 PDF**, just not in the repo markdowns:
+
+| Earlier finding (Part 1 / Part 2) | Status in GP1 PDF |
+|----|----|
+| Ch1 Gantt chart missing | Present (Figure 1) |
+| Ch1 Team Qualifications mini-resume missing | Present as Table 1 (skills matrix) |
+| Ch1 Conclusion section missing | Present as §1.6 |
+| Ch2 chapter Introduction missing | Present as §2.1 |
+| Ch2 proper Conclusion missing | Present as §2.4 |
+| References scattered per chapter | GP1 PDF has a single IEEE list at end |
+| Ch3 FR organisation poor | Module-grouped in Tables 4-8, much cleaner |
+| Ch3 NFR taxonomy off | Closer to committee Figure 1 |
+| Tier-threshold contradiction (3/7/30 vs 7/14/90) | **Does not exist in PDF** — PDF uses qualitative tier names only |
+| Database "4 tables vs 8" contradiction | Does not exist in PDF — PDF does not list tables |
+| Ch4 weak design / missing sections | Ch4 was not in GP1 at all |
+| Forecast strategy contradiction | Does not exist in PDF — PDF does not specify the loop |
+
+The "frozen design decisions that no longer match the code" framing from
+Part 1 was based on the repo's `docs/chapter3_requirements.md`. Reading
+the actual GP1 PDF, **those frozen decisions were never accepted by the
+committee** — they were introduced by whoever wrote the markdown
+version. The GP1 PDF stayed at a more abstract qualitative level for
+Ch3 and never committed to specific numbers like `DoS < 3`.
+
+## What is still genuinely missing or weak even after the PDF
+
+- **Ch1 overview-of-chapter paragraph** — guidelines ask for a
+  paragraph listing what the chapter will cover; PDF has a brief
+  "in this chapter we explain…" sentence but it is light.
+- **Ch1 Team Qualifications as real mini-resumes** — PDF Table 1 is
+  a skills checkmark grid, not the work-experience / similar-projects /
+  training / education resume the guidelines describe.
+- **Ch2 category-intro / closing comments per related-work category** —
+  PDF has the categories but not always with explicit opening and
+  closing paragraphs.
+- **Ch3 elicitation method paragraph** — PDF does not state whether
+  requirements came from interviews / observations / advisor input /
+  literature review.
+- **Ch3 use case diagram** — PDF describes stakeholders and user
+  requirements but has no UML use case diagram.
+- **Ch3 NFR mapping to Figure 1 taxonomy** — PDF's NFR table is good
+  but doesn't explicitly partition into Product / Organisational /
+  External branches.
+- **Ch4 (Design)** — entirely missing from GP1, must be built from
+  scratch with all the items in the Part 2 audit.
+- **Scope extension beyond GP1 Ch3** — Ch3 FRs in the PDF cover
+  Data Management, Forecasting Engine, Risk Analysis Logic, Dashboard
+  and Interaction, Security and Data Management. The Phase 9
+  additions (expiry advisor, alerts, suppliers, POs, batch
+  receive/recall, catalog management) **do not appear** in the PDF
+  FRs. This is the only real scope gap a committee member could
+  notice — and it is easier to bridge with a "scope evolution"
+  paragraph in Ch5 than to retrofit Ch3.
+
+## Decision the team must make
+
+The repo currently contains two parallel sources of truth for Ch1-3:
+
+1. **`docs/M27_GP1.pdf`** (the accepted submission) — better structured
+   per committee guidelines, lighter on technical specifics.
+2. **`docs/chapter1_introduction.md` / `chapter2_literature_review.md` /
+   `chapter3_requirements.md`** — denser and more technical, but
+   structurally weaker and introduces details (tier thresholds, 4-table
+   schema) that were never in the accepted version.
+
+There are three reasonable paths:
+
+- **Path I (recommended).** Keep the GP1 PDF as the authoritative
+  Ch1-3 for submission. Convert it to markdown or PDF in the final
+  bundle so the formatting matches Ch4-7. Add the still-missing items
+  listed above. **Delete or archive the repo's
+  `docs/chapter1-3.md`** so there is one source of truth.
+- **Path II.** Promote the repo markdowns to authoritative. Then most
+  of Part 1's "design contradictions" must be fixed in them, and the
+  team has to justify changes from what was accepted at GP1.
+- **Path III.** Merge the two — take the GP1 PDF structure (which is
+  what the committee already accepted) and selectively pull denser
+  technical content from the markdowns where it adds value.
+
+Path I is the lowest-risk and lowest-effort. The committee accepted
+the PDF version; reusing it for GP2 final preserves that acceptance
+and only requires additions, not corrections.
