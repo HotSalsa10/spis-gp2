@@ -1404,6 +1404,34 @@ page is wired through `_shared.py` to the model layer.
 
 # Chapter 5: Implementation
 
+## 5.0 Design Evolution: GP1 Scope and Phase 9 Extension
+
+Chapter 3 captured the functional requirements as agreed at the GP1
+milestone — five module-level FR groups covering Data Management,
+Forecasting Engine, Risk Analysis Logic, Dashboard and Interaction,
+and Security and Data Management. Between GP1 and GP2 the project
+scope was extended in two phases. Phase 8.5 split the single
+dashboard page into nine and added per-batch expiry tracking with a
+two-factor discount advisor. Phase 9 added a notification alert
+engine, a directory of four real Saudi pharmaceutical suppliers
+with operator-editable contacts, supplier-grouped purchase-order
+PDFs, a batch receive-and-recall workflow, a catalog-management
+page, an analytics page with six panels (model accuracy, feature
+importance, ABC Pareto, seasonal decomposition, year-over-year
+growth, rolling trend) plus a turnover KPI strip, and a P10-P90
+bootstrap prediction band on the history/forecast page. The Phase 9
+additions were prioritised after consultation with the project
+advisor as the features most likely to differentiate SPIS from a
+textbook forecasting demo. Two design-level changes also entered
+during this period: the risk-tier thresholds were re-calibrated
+from the original `(3, 7, 30)` days to `(7, 14, 90)` days (see
+Chapter 4 §4.7.2), and the 30-day forecast loop became recursive
+rather than holding lag and rolling features constant (see Chapter 4
+§4.7.3). The implementation documented in this chapter therefore
+extends the GP1 scope additively; nothing in Chapter 3 is
+contradicted, but several modules described here have no
+corresponding FR in Chapter 3 because they were added after GP1.
+
 ## 5.1 Development Environment
 
 SPIS is built and run under Windows 11 in a Python 3.11.9 virtual environment.
@@ -2468,25 +2496,11 @@ pharmacist next.
 
 ## References
 
-[1] Chen, T., & Guestrin, C. (2016). XGBoost: A scalable tree boosting
-system. In *Proc. 22nd ACM SIGKDD Int. Conf. on Knowledge Discovery and
-Data Mining* (pp. 785–794).
-
-[2] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in Python.
-*Journal of Machine Learning Research*, 12, 2825–2830.
-
-[3] McKinney, W. (2010). Data structures for statistical computing in
-Python. In *Proc. 9th Python in Science Conf.* (Vol. 445, pp. 51–56).
-
-[4] Seabold, S., & Perktold, J. (2010). statsmodels: Econometric and
-statistical modeling with Python. In *Proc. 9th Python in Science Conf.*
-
-[5] Ronacher, A. (2023). Flask: a lightweight WSGI web application
-framework. https://flask.palletsprojects.com/
-
-[6] Streamlit Inc. (2024). Streamlit — the fastest way to build data apps.
-https://streamlit.io/
-
-[7] Jiang, J. X., Zhu, M., & Liu, H. L. (2014). Demand forecasting for
-pharmacy inventory: a review and perspective. *European Journal of
-Operational Research*, 237(1), 1–10.
+The references for this report are consolidated into a single IEEE-style
+list at the end of the full Ch1-7 document, per committee guideline §IX
+("a single Reference section for the whole report"). See
+`docs/references_master.md` for the master list. New entries cited
+above (Chen & Guestrin XGBoost, Pedregosa et al. scikit-learn, McKinney
+pandas, Seabold & Perktold statsmodels, Ronacher Flask, Streamlit Inc.,
+and Sommerville) are numbered [24] – [30] in that consolidated list and
+extend the 23 entries inherited from the GP1 submission.
