@@ -1,11 +1,3 @@
-"""
-tests/test_pipeline.py
-----------------------
-Unit tests for the Phase 2 data pipeline (spis.data.pipeline).
-
-All tests use synthetic DataFrames so they run on any machine without
-requiring the real Kaggle database.
-"""
 
 import pandas as pd
 import pytest
@@ -18,10 +10,6 @@ from spis.data.pipeline import (
     validate,
 )
 
-
-# ---------------------------------------------------------------------------
-# Fixtures — reusable synthetic data
-# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def small_daily_df():
@@ -54,10 +42,6 @@ def multi_atc_df():
     return pd.concat(frames, ignore_index=True)
 
 
-# ---------------------------------------------------------------------------
-# Test: validate
-# ---------------------------------------------------------------------------
-
 def test_validate_clean_data(multi_atc_df):
     """Clean data should pass through validate unchanged."""
     result = validate(multi_atc_df)
@@ -82,10 +66,6 @@ def test_validate_catches_duplicates():
     assert m01ab["quantity"].iloc[0] == 8.0
 
 
-# ---------------------------------------------------------------------------
-# Test: fill_missing_dates
-# ---------------------------------------------------------------------------
-
 def test_fill_missing_dates():
     """A 3-day gap should be filled with quantity=0."""
     df = pd.DataFrame({
@@ -106,10 +86,6 @@ def test_fill_missing_dates():
     jan1 = result[result["date"] == pd.Timestamp("2018-01-01")]
     assert jan1["quantity"].iloc[0] == 10.0
 
-
-# ---------------------------------------------------------------------------
-# Test: engineer_features
-# ---------------------------------------------------------------------------
 
 def test_engineer_features_columns(small_daily_df):
     """All 35 engineered feature columns should be present after transformation."""
@@ -152,10 +128,6 @@ def test_engineer_features_lag_values(small_daily_df):
     row_10 = result.iloc[10]
     assert row_10["lag_1"] == 9.0  # quantity = index for this fixture
 
-
-# ---------------------------------------------------------------------------
-# Test: split_train_test
-# ---------------------------------------------------------------------------
 
 def test_split_no_leakage():
     """All train dates must be before the cutoff; all test dates at or after."""

@@ -1,13 +1,4 @@
-"""
-spis/dashboard/_shared.py
---------------------------
-Shared constants and cached loaders used by all dashboard pages.
-
-Import this module in every page instead of duplicating path resolution
-and caching logic:
-
-    from spis.dashboard._shared import DB_PATH, MODELS_DIR, load_artifacts, run_assessment
-"""
+"""Shared constants, cached loaders, and CSS used by every dashboard page."""
 
 from pathlib import Path
 
@@ -17,10 +8,6 @@ import sqlite3
 
 from spis.models.forecaster import load_model
 from spis.models.risk_classifier import assess_from_features, load_atc_inventory
-
-# ---------------------------------------------------------------------------
-# Global CSS — injected once per page
-# ---------------------------------------------------------------------------
 
 _CSS = """
 <style>
@@ -213,12 +200,9 @@ hr { border-color: #1e2535 !important; margin: 1.4rem 0 !important; }
 
 
 def inject_css() -> None:
-    """Inject the shared dashboard stylesheet. Call once per page after set_page_config."""
+    """Call once after set_page_config."""
     st.markdown(_CSS, unsafe_allow_html=True)
 
-# ---------------------------------------------------------------------------
-# Path constants (resolved relative to this file -> always correct)
-# ---------------------------------------------------------------------------
 
 ROOT         = Path(__file__).resolve().parent.parent.parent
 MODELS_DIR   = ROOT / "models"
@@ -232,14 +216,10 @@ REQUIRED_FILES = [
     FEATURES_CSV,
 ]
 
-# ---------------------------------------------------------------------------
-# Shared cache functions (cached at process level -> shared across pages)
-# ---------------------------------------------------------------------------
-
 
 @st.cache_resource
 def load_artifacts():
-    """Load model, encoder, and inventory dict from disk (cached for process lifetime)."""
+    """Loaded once per process."""
     model, encoder = load_model(MODELS_DIR)
     inventory = load_atc_inventory(DB_PATH)
     return model, encoder, inventory
@@ -247,7 +227,7 @@ def load_artifacts():
 
 @st.cache_data(ttl=300)
 def run_assessment(_model, _encoder, _inventory):
-    """Run risk assessment (re-evaluated at most every 5 minutes)."""
+    """Re-runs every 5 min (or when cache is cleared)."""
     return assess_from_features(
         features_csv=FEATURES_CSV,
         inventory=_inventory,
@@ -256,14 +236,8 @@ def run_assessment(_model, _encoder, _inventory):
     )
 
 
-# ---------------------------------------------------------------------------
-# Guard helper
-# ---------------------------------------------------------------------------
-
-
 @st.cache_data
 def load_atc_names(db_path: str) -> dict[str, str]:
-    """Return dict: atc_code -> atc_name."""
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute(
             "SELECT atc_code, atc_name FROM atc_categories"
@@ -273,7 +247,6 @@ def load_atc_names(db_path: str) -> dict[str, str]:
 
 @st.cache_data
 def load_drugs(db_path: str) -> "pd.DataFrame":
-    """Return DataFrame of all drugs: drug_name, atc_code, unit."""
     import pandas as pd
     with sqlite3.connect(db_path) as conn:
         return pd.read_sql_query(
@@ -284,7 +257,7 @@ def load_drugs(db_path: str) -> "pd.DataFrame":
 
 @st.cache_data
 def load_atc_labels(db_path: str) -> dict:
-    """Return dict: atc_code -> {category, drugs_short (top 3), drugs_full (all)}."""
+    """atc_code -> {category, drugs_short, drugs_full}."""
     with sqlite3.connect(db_path) as conn:
         cats = conn.execute(
             "SELECT atc_code, atc_name FROM atc_categories"
@@ -309,10 +282,7 @@ def load_atc_labels(db_path: str) -> dict:
 
 
 def check_required_files() -> bool:
-    """
-    Return True if all required files exist.
-    Calls st.error + st.stop() if any are missing (no return in that case).
-    """
+    """Stop the page if model/db/features are missing."""
     missing = [str(p) for p in REQUIRED_FILES if not p.exists()]
     if missing:
         st.error(

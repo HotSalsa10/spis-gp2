@@ -35,19 +35,12 @@ import sqlite3
 import sys
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Make the project root importable
-# ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from spis.data.catalog import add_atc_code  # noqa: E402
 from spis.data.database import init_db       # noqa: E402
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _list_codes(db_path: Path) -> None:
     """Print a table of all registered ATC codes."""
@@ -75,10 +68,6 @@ def _list_codes(db_path: Path) -> None:
         print(f"{code:<10} {name:<40} {system:<35} {stock:>8.1f}")
     print(f"\n{len(rows)} code(s) registered.")
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     parser = argparse.ArgumentParser(

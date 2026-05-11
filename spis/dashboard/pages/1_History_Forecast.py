@@ -1,12 +1,4 @@
-"""
-spis/dashboard/pages/1_History_Forecast.py
--------------------------------------------
-Page 1 — Configurable sales history + 30-day demand forecast chart.
-
-Displays an interactive Plotly line chart for the selected ATC code:
-  - Solid line  : last N days of actual daily sales (slider-controlled)
-  - Dashed line : 30-day forecast from the XGBoost model
-"""
+"""Page 1: history chart + 30-day forecast (+ bootstrap P10-P90 band)."""
 
 import sqlite3
 
@@ -32,9 +24,6 @@ from spis.models.risk_classifier import forecast_30_days
 
 TEST_CSV = ROOT / "data" / "processed" / "test.csv"
 
-# ---------------------------------------------------------------------------
-# Page config
-# ---------------------------------------------------------------------------
 
 st.set_page_config(page_title="History & Forecast — SPIS", layout="wide")
 inject_css()
@@ -46,9 +35,6 @@ st.caption(
 
 check_required_files()
 
-# ---------------------------------------------------------------------------
-# Load model + data
-# ---------------------------------------------------------------------------
 
 with st.spinner("Loading model ..."):
     model, encoder, inventory = load_artifacts()
@@ -88,10 +74,6 @@ if drug_list:
     with st.expander(f"Medications in this group ({len(drug_list)})"):
         st.write(", ".join(sorted(drug_list)))
 
-# ---------------------------------------------------------------------------
-# Fetch history from SQLite
-# ---------------------------------------------------------------------------
-
 
 @st.cache_data(ttl=300)
 def _load_history(atc_code: str, n_days: int = 90) -> pd.DataFrame:
@@ -111,11 +93,6 @@ def _load_history(atc_code: str, n_days: int = 90) -> pd.DataFrame:
     return df.sort_values("sale_date").reset_index(drop=True)
 
 
-# ---------------------------------------------------------------------------
-# Build 30-day forecast series
-# ---------------------------------------------------------------------------
-
-
 @st.cache_data(ttl=300)
 def _load_forecast(atc_code: str) -> pd.DataFrame:
     features_df = pd.read_csv(str(FEATURES_CSV), parse_dates=["date"])
@@ -131,11 +108,6 @@ def _load_forecast(atc_code: str) -> pd.DataFrame:
     )
     dates = [start_date + pd.Timedelta(days=i) for i in range(len(daily_preds))]
     return pd.DataFrame({"date": dates, "quantity": daily_preds})
-
-
-# ---------------------------------------------------------------------------
-# Bootstrap prediction interval (P10–P90)
-# ---------------------------------------------------------------------------
 
 
 @st.cache_data(ttl=600)
@@ -174,10 +146,6 @@ def _bootstrap_interval(
     sims = np.clip(fc[None, :] + sampled, 0.0, None)
     return np.percentile(sims, p_lo, axis=0), np.percentile(sims, p_hi, axis=0)
 
-
-# ---------------------------------------------------------------------------
-# Plot
-# ---------------------------------------------------------------------------
 
 history_df = _load_history(selected, n_days)
 forecast_df = _load_forecast(selected)
@@ -242,9 +210,6 @@ fig.update_layout(
 
 st.plotly_chart(fig, use_container_width=True)
 
-# ---------------------------------------------------------------------------
-# Summary numbers below chart
-# ---------------------------------------------------------------------------
 
 ra_by_atc = {ra.atc_code: ra for ra in results}
 ra = ra_by_atc.get(selected)

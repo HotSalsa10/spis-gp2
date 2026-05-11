@@ -1,25 +1,4 @@
-"""
-spis/models/alert_engine.py
-----------------------------
-Phase 9 Item 6: notification alert generation.
-
-Pure functions that map risk assessments and expiry offers to Alert records,
-then persist them (idempotently) to the alerts table in the database.
-
-Alert type mapping:
-    RiskAssessment.risk_tier == 'CRITICAL' -> LOW_STOCK / CRITICAL
-    RiskAssessment.risk_tier == 'LOW'      -> LOW_STOCK / WARNING
-    ExpiryOffer.action == 'write_off'      -> EXPIRY    / CRITICAL
-    ExpiryOffer.action == 'return_to_supplier' -> EXPIRY / WARNING
-    ExpiryOffer.action == 'promote'        -> EXPIRY    / WARNING (<=30d) or INFO (>30d)
-
-Idempotency: refresh() skips any alert whose (alert_type, atc_code, batch_number)
-already has an open (unacknowledged) record.
-
-Usage:
-    from spis.models.alert_engine import refresh
-    new_count = refresh(db_path, risk_assessments, expiry_offers)
-"""
+"""Map risk + expiry results to alert rows, with dedupe."""
 
 from __future__ import annotations
 
@@ -31,43 +10,17 @@ from spis.models.expiry_advisor import ExpiryOffer
 from spis.models.risk_classifier import RiskAssessment
 
 
-# ---------------------------------------------------------------------------
-# Alert dataclass (in-memory representation before DB persistence)
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class Alert:
-    """
-    In-memory alert record produced by the pure mapping functions.
-
-    Fields mirror the alerts table columns minus alert_id and timestamps.
-    """
-
-    alert_type: str           # 'LOW_STOCK' | 'EXPIRY' | 'RECALL'
+    alert_type: str           # LOW_STOCK | EXPIRY | RECALL
     atc_code: str | None
     batch_number: str | None
-    severity: str             # 'CRITICAL' | 'WARNING' | 'INFO'
+    severity: str             # CRITICAL | WARNING | INFO
     message: str
 
 
-# ---------------------------------------------------------------------------
-# Pure mapping functions
-# ---------------------------------------------------------------------------
-
-
 def alerts_from_risk(assessments: list[RiskAssessment]) -> list[Alert]:
-    """
-    Generate LOW_STOCK Alert records from a list of RiskAssessment results.
-
-    Only CRITICAL and LOW tiers produce alerts; OK and OVERSTOCK are skipped.
-
-    Args:
-        assessments: List of RiskAssessment dataclass instances.
-
-    Returns:
-        List of Alert dataclasses (not yet persisted).
-    """
+    """Only CRITICAL/LOW tiers produce alerts."""
     result: list[Alert] = []
     for ra in assessments:
         if ra.risk_tier == "CRITICAL":
@@ -100,17 +53,6 @@ def alerts_from_risk(assessments: list[RiskAssessment]) -> list[Alert]:
 
 
 def alerts_from_expiry(offers: list[ExpiryOffer]) -> list[Alert]:
-    """
-    Generate EXPIRY Alert records from a list of ExpiryOffer results.
-
-    Offers with action='none' are skipped (no alert needed).
-
-    Args:
-        offers: List of ExpiryOffer dataclass instances.
-
-    Returns:
-        List of Alert dataclasses (not yet persisted).
-    """
     result: list[Alert] = []
     for offer in offers:
         if offer.action == "none":
@@ -121,6 +63,7 @@ def alerts_from_expiry(offers: list[ExpiryOffer]) -> list[Alert]:
         elif offer.action == "return_to_supplier":
             severity = "WARNING"
         elif offer.action == "promote":
+            # near-expiry promotes get bumped up to WARNING
             severity = "WARNING" if offer.days_to_expiry <= 30 else "INFO"
         else:
             severity = "INFO"
@@ -141,31 +84,12 @@ def alerts_from_expiry(offers: list[ExpiryOffer]) -> list[Alert]:
     return result
 
 
-# ---------------------------------------------------------------------------
-# Orchestrator
-# ---------------------------------------------------------------------------
-
-
 def refresh(
     db_path: str | Path,
     assessments: list[RiskAssessment],
     offers: list[ExpiryOffer],
 ) -> int:
-    """
-    Generate alerts from current system state and persist new ones.
-
-    Idempotent: for each candidate alert, checks whether an open alert
-    with the same (alert_type, atc_code, batch_number) already exists.
-    If it does, the candidate is skipped.
-
-    Args:
-        db_path    : Path to the SQLite database.
-        assessments: Current risk assessments (from assess_from_features).
-        offers     : Current expiry offers (from assess_all_batches).
-
-    Returns:
-        Number of new alert rows inserted in this call.
-    """
+    """Insert any new alerts (skips ones already open). Returns count inserted."""
     candidates = alerts_from_risk(assessments) + alerts_from_expiry(offers)
     inserted = 0
     for alert in candidates:

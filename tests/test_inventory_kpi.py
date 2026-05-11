@@ -1,11 +1,3 @@
-"""
-tests/test_inventory_kpi.py
-----------------------------
-Unit tests for spis.models.inventory_kpi.compute_turnover.
-
-All tests use a minimal in-memory SQLite fixture (no init_db required)
-so they run without the Kaggle sales data or model artifacts.
-"""
 
 import sqlite3
 
@@ -13,9 +5,6 @@ import pytest
 
 from spis.models.inventory_kpi import _classify, compute_turnover
 
-# ---------------------------------------------------------------------------
-# Fixture: minimal DB with only the two tables that compute_turnover reads
-# ---------------------------------------------------------------------------
 
 _SCHEMA = """
 CREATE TABLE atc_inventory (
@@ -49,10 +38,6 @@ def kpi_db(tmp_path):
     return db
 
 
-# ---------------------------------------------------------------------------
-# Test 1 — turnover formula
-# ---------------------------------------------------------------------------
-
 def test_turnover_formula(kpi_db):
     """turnover = units_sold / avg_inventory; correct numeric value and label."""
     with sqlite3.connect(kpi_db) as conn:
@@ -73,10 +58,6 @@ def test_turnover_formula(kpi_db):
     assert result["M01AE"]["classification"] == "Healthy"
 
 
-# ---------------------------------------------------------------------------
-# Test 2 — classification thresholds
-# ---------------------------------------------------------------------------
-
 def test_classification_thresholds():
     """Every classification bucket and its boundary values are correct."""
     assert _classify(0.0) == "Slow"
@@ -94,10 +75,6 @@ def test_classification_thresholds():
     assert _classify(24.01) == "Excessive"
     assert _classify(30.0) == "Excessive"
 
-
-# ---------------------------------------------------------------------------
-# Test 3 — empty period handling
-# ---------------------------------------------------------------------------
 
 def test_empty_period_handling(kpi_db):
     """No sales within the look-back window -> turnover 0.0, classified Slow."""
@@ -118,10 +95,6 @@ def test_empty_period_handling(kpi_db):
     assert result["R06"]["classification"] == "Slow"
 
 
-# ---------------------------------------------------------------------------
-# Test 4 — zero inventory edge case
-# ---------------------------------------------------------------------------
-
 def test_zero_inventory_edge_case(kpi_db):
     """Zero on-hand stock -> turnover 0.0 regardless of sales volume."""
     with sqlite3.connect(kpi_db) as conn:
@@ -140,10 +113,6 @@ def test_zero_inventory_edge_case(kpi_db):
     # Division by zero does not raise; result is still classifiable.
     assert result["N05B"]["classification"] == "Slow"
 
-
-# ---------------------------------------------------------------------------
-# Test 5 — multi-ATC aggregation
-# ---------------------------------------------------------------------------
 
 def test_multi_atc_aggregation(kpi_db):
     """Multiple ATC codes each receive independent, correctly computed turnover."""

@@ -1,13 +1,3 @@
-"""
-spis/dashboard/pages/2_Stock_Update.py
----------------------------------------
-Page 2 — Interactive stock level editor.
-
-Pharmacists can enter the current physical stock count for any ATC code
-and submit the form. The database is updated immediately and the risk
-assessment cache is cleared so the Overview page reflects new values.
-All changes are appended to data/stock_audit.csv for traceability.
-"""
 
 import csv
 from datetime import datetime, timezone
@@ -38,9 +28,6 @@ def _append_audit(entries: list[dict]) -> None:
             writer.writeheader()
         writer.writerows(entries)
 
-# ---------------------------------------------------------------------------
-# Page config
-# ---------------------------------------------------------------------------
 
 st.set_page_config(page_title="Stock Update — SPIS", layout="wide")
 inject_css()
@@ -49,9 +36,6 @@ st.caption("Enter the current physical stock count for each ATC code and click S
 
 check_required_files()
 
-# ---------------------------------------------------------------------------
-# Load current stock levels
-# ---------------------------------------------------------------------------
 
 with st.spinner("Loading inventory ..."):
     model, encoder, inventory = load_artifacts()
@@ -60,9 +44,6 @@ with st.spinner("Loading inventory ..."):
 ra_by_atc  = {ra.atc_code: ra for ra in results}
 atc_labels = load_atc_labels(str(DB_PATH))
 
-# ---------------------------------------------------------------------------
-# Build form with one number_input per ATC code
-# ---------------------------------------------------------------------------
 
 TIER_BADGE = {
     "CRITICAL":  "CRITICAL",
@@ -112,9 +93,6 @@ with st.form("stock_update_form"):
 
     submitted = st.form_submit_button("Save All Changes", type="primary")
 
-# ---------------------------------------------------------------------------
-# Handle submission
-# ---------------------------------------------------------------------------
 
 if submitted:
     changed = {

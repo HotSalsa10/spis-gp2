@@ -1,11 +1,3 @@
-"""
-tests/test_alert_engine.py
---------------------------
-Unit tests for spis.models.alert_engine and the alert-related helpers
-in spis.data.database.
-
-All tests use a temporary SQLite database so they never touch data/inventory.db.
-"""
 
 import pytest
 
@@ -20,11 +12,6 @@ from spis.data.database import (
 from spis.models.alert_engine import Alert, alerts_from_expiry, alerts_from_risk, refresh
 from spis.models.expiry_advisor import ExpiryOffer
 from spis.models.risk_classifier import RiskAssessment
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -68,11 +55,6 @@ def _make_offer(
         offer_label="Special Offer",
         action=action,
     )
-
-
-# ---------------------------------------------------------------------------
-# Tests: alerts_from_risk
-# ---------------------------------------------------------------------------
 
 
 def test_critical_tier_generates_critical_low_stock_alert():
@@ -120,11 +102,6 @@ def test_alerts_from_risk_mixed_tiers():
     assert len(alerts) == 2
 
 
-# ---------------------------------------------------------------------------
-# Tests: alerts_from_expiry
-# ---------------------------------------------------------------------------
-
-
 def test_write_off_action_generates_critical_expiry_alert():
     """action='write_off' must produce severity CRITICAL."""
     offer = _make_offer("M01AE", "LOT-TEST-001", "write_off", days_to_expiry=-1)
@@ -168,11 +145,6 @@ def test_none_action_skipped():
     assert len(alerts) == 0
 
 
-# ---------------------------------------------------------------------------
-# Tests: refresh (idempotency + DB persistence)
-# ---------------------------------------------------------------------------
-
-
 def test_refresh_inserts_new_alerts(tmp_db):
     """refresh() must insert alerts for CRITICAL/LOW risk tiers."""
     assessments = [_make_ra("N02BE", "CRITICAL"), _make_ra("M01AB", "LOW")]
@@ -206,11 +178,6 @@ def test_refresh_after_acknowledge_creates_new_alert(tmp_db):
     second = refresh(tmp_db, assessments, [])
     assert second == 1
     assert len(get_open_alerts(tmp_db)) == 1
-
-
-# ---------------------------------------------------------------------------
-# Tests: acknowledge_alert
-# ---------------------------------------------------------------------------
 
 
 def test_acknowledge_removes_from_open_count(tmp_db):

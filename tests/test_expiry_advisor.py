@@ -1,10 +1,3 @@
-"""
-tests/test_expiry_advisor.py
------------------------------
-Unit tests for spis.models.expiry_advisor.
-
-All tests are pure-logic (no database, no model artifacts required).
-"""
 
 import datetime
 
@@ -20,15 +13,8 @@ from spis.models.expiry_advisor import (
     classify_discount,
 )
 
-# ---------------------------------------------------------------------------
-# Reference date used across all tests
-# ---------------------------------------------------------------------------
 
 TODAY = datetime.date(2026, 3, 30)
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _batch(
@@ -47,11 +33,6 @@ def _batch(
         "expiry_date":  expiry_date,
         "notes":        notes,
     }
-
-
-# ---------------------------------------------------------------------------
-# Tests: classify_discount  (2-factor: days_to_expiry × risk_ratio)
-# ---------------------------------------------------------------------------
 
 
 def test_classify_discount_no_action():
@@ -168,11 +149,6 @@ def test_classify_discount_risk_boundaries():
     assert RISK_HIGH == 0.66
 
 
-# ---------------------------------------------------------------------------
-# Tests: assess_batch
-# ---------------------------------------------------------------------------
-
-
 def test_assess_batch_returns_none_when_too_far_out():
     """Batches > 90 days out should return None (no action needed)."""
     b = _batch(expiry_date="2026-07-05")  # 97 days from TODAY
@@ -218,11 +194,6 @@ def test_assess_batch_waste_value_calculation():
     assert result.waste_value == pytest.approx(20.0)
     assert result.suggested_discount_pct == 20   # risk_ratio=0.4 (medium) -> 20%
     assert result.action == "promote"
-
-
-# ---------------------------------------------------------------------------
-# Tests: assess_all_batches
-# ---------------------------------------------------------------------------
 
 
 def test_assess_all_batches_returns_sorted_by_urgency():

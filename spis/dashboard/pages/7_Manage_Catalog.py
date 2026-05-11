@@ -1,12 +1,4 @@
-"""
-spis/dashboard/pages/7_Manage_Catalog.py
------------------------------------------
-Manage Catalog page: browse ATC categories and add drugs or ATC codes.
-
-Section A — read-only ATC overview table with drug counts.
-Section B — form to add a new drug to an existing ATC category.
-Section C — form to register a brand-new ATC code (with retraining warning).
-"""
+"""Page 7: browse ATC + add drugs/ATC/suppliers + assign ATC->supplier."""
 
 import streamlit as st
 import pandas as pd
@@ -26,9 +18,6 @@ inject_css()
 st.title("Manage Catalog")
 st.caption("Add drugs and ATC categories without touching code.")
 
-# ---------------------------------------------------------------------------
-# Guard: DB must exist (no model artifacts required for this page)
-# ---------------------------------------------------------------------------
 if not DB_PATH.exists():
     st.error(
         "Database not found. Run `python scripts/ingest_kaggle.py` or "
@@ -36,10 +25,6 @@ if not DB_PATH.exists():
     )
     st.stop()
 
-
-# ---------------------------------------------------------------------------
-# Section A -- ATC categories overview
-# ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=30)
 def _load_atc(db: str) -> pd.DataFrame:
@@ -70,9 +55,6 @@ else:
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Section B -- Add Drug
-# ---------------------------------------------------------------------------
 
 st.subheader("Add Drug")
 
@@ -107,9 +89,6 @@ else:
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Section C -- Add ATC Code
-# ---------------------------------------------------------------------------
 
 st.subheader("Add ATC Code")
 st.warning(
@@ -159,9 +138,6 @@ if submitted_atc:
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Section D -- Suppliers (Phase 9)
-# ---------------------------------------------------------------------------
 
 st.subheader("Suppliers")
 st.caption(
@@ -230,9 +206,6 @@ if submitted_sup:
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Section E -- Assign ATC -> Supplier
-# ---------------------------------------------------------------------------
 
 st.subheader("Assign ATC Code to Supplier")
 st.caption(

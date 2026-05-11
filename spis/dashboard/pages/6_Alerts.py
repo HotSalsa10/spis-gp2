@@ -1,14 +1,3 @@
-"""
-spis/dashboard/pages/6_Alerts.py
----------------------------------
-Page 6 -- Notification Center.
-
-Automatically generates alerts from current risk state and expiry assessments,
-then displays a filterable feed with per-alert acknowledge controls.
-
-Count tiles at the top show open / critical / warning counts at a glance.
-Acknowledging an alert removes it from the open count.
-"""
 
 import streamlit as st
 
@@ -24,9 +13,6 @@ from spis.dashboard._shared import (
 from spis.models.alert_engine import refresh
 from spis.models.expiry_advisor import assess_all_batches
 
-# ---------------------------------------------------------------------------
-# Page config
-# ---------------------------------------------------------------------------
 
 st.set_page_config(page_title="Alerts -- SPIS", layout="wide")
 inject_css()
@@ -38,9 +24,6 @@ st.caption(
 
 check_required_files()
 
-# ---------------------------------------------------------------------------
-# Load data and refresh alerts
-# ---------------------------------------------------------------------------
 
 with st.spinner("Checking system state ..."):
     model, encoder, inventory = load_artifacts()
@@ -55,9 +38,6 @@ new_count = refresh(str(DB_PATH), results, offers)
 if new_count:
     st.toast(f"{new_count} new alert(s) generated.")
 
-# ---------------------------------------------------------------------------
-# Fetch all alerts from DB
-# ---------------------------------------------------------------------------
 
 all_alerts = get_all_alerts(str(DB_PATH))
 
@@ -65,9 +45,6 @@ open_alerts   = [a for a in all_alerts if a["acknowledged_at"] is None]
 critical_count = sum(1 for a in open_alerts if a["severity"] == "CRITICAL")
 warning_count  = sum(1 for a in open_alerts if a["severity"] == "WARNING")
 
-# ---------------------------------------------------------------------------
-# Count tiles
-# ---------------------------------------------------------------------------
 
 c1, c2, c3 = st.columns(3)
 c1.metric("Open Alerts", len(open_alerts))
@@ -76,9 +53,6 @@ c3.metric("Warnings", warning_count)
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Sidebar filters
-# ---------------------------------------------------------------------------
 
 with st.sidebar:
     st.header("Filters")
@@ -94,9 +68,6 @@ with st.sidebar:
         default=["LOW_STOCK", "EXPIRY", "RECALL"],
     )
 
-# ---------------------------------------------------------------------------
-# Filter logic
-# ---------------------------------------------------------------------------
 
 filtered = list(all_alerts)
 if not show_acked:
@@ -108,9 +79,6 @@ if sel_type:
 
 filtered = sorted(filtered, key=lambda a: a["created_at"], reverse=True)
 
-# ---------------------------------------------------------------------------
-# Severity badge helper
-# ---------------------------------------------------------------------------
 
 _BADGE_STYLE = {
     "CRITICAL": (
@@ -138,10 +106,6 @@ def _badge(severity: str) -> str:
     style = _BADGE_STYLE.get(severity, "")
     return f'<span style="{style}">{severity}</span>'
 
-
-# ---------------------------------------------------------------------------
-# Alert feed
-# ---------------------------------------------------------------------------
 
 if not filtered:
     st.info("No alerts matching the current filters.")

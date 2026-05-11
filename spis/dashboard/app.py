@@ -1,17 +1,4 @@
-"""
-spis/dashboard/app.py
----------------------
-Phase 8.5 Streamlit dashboard for SPIS — Overview page.
-
-Displays inventory risk tiers, 30-day demand forecasts, and order
-recommendations for all ATC codes.  Additional pages (History & Forecast,
-Stock Update, Expiry Offers, Analytics) are in spis/dashboard/pages/.
-
-Run:
-    streamlit run spis/dashboard/app.py
-    # or via the convenience script:
-    python scripts/run_dashboard.py
-"""
+"""Overview page (entry point for the multi-page Streamlit app)."""
 
 from collections import Counter
 
@@ -38,17 +25,10 @@ TIER_COLOR = {
     "OVERSTOCK": "#4361ee",
 }
 
-# ---------------------------------------------------------------------------
-# Page config + styling
-# ---------------------------------------------------------------------------
-
 st.set_page_config(page_title="SPIS Dashboard", layout="wide")
 inject_css()
 
-# ---------------------------------------------------------------------------
-# Header
-# ---------------------------------------------------------------------------
-
+# header
 st.markdown(
     """
     <div style="display:flex; align-items:center; gap:14px; margin-bottom:0.2rem;">
@@ -66,10 +46,6 @@ st.divider()
 
 check_required_files()
 
-# ---------------------------------------------------------------------------
-# Load data
-# ---------------------------------------------------------------------------
-
 with st.spinner("Running risk assessment …"):
     model, encoder, inventory = load_artifacts()
     results = run_assessment(model, encoder, inventory)
@@ -83,10 +59,7 @@ tier_counts = Counter(ra.risk_tier for ra in results)
 atc_names   = load_atc_names(str(DB_PATH))
 atc_labels  = load_atc_labels(str(DB_PATH))
 
-# ---------------------------------------------------------------------------
-# Critical alert banner
-# ---------------------------------------------------------------------------
-
+# critical alert banner
 critical_items = [ra for ra in results if ra.risk_tier == "CRITICAL"]
 if critical_items:
     items_html = " &nbsp;·&nbsp; ".join(
@@ -112,10 +85,7 @@ if critical_items:
         unsafe_allow_html=True,
     )
 
-# ---------------------------------------------------------------------------
 # KPI cards
-# ---------------------------------------------------------------------------
-
 kpi_items = [
     ("CRITICAL",  "Critical",   "Reorder immediately",     "kpi-critical"),
     ("LOW",       "Low Stock",  "Reorder within 14 days",  "kpi-low"),
@@ -139,10 +109,7 @@ for col, (tier, label, hint, cls) in zip(cols, kpi_items):
 
 st.markdown("<div style='margin-top:1.5rem'></div>", unsafe_allow_html=True)
 
-# ---------------------------------------------------------------------------
-# Donut chart + Order bar chart — side by side
-# ---------------------------------------------------------------------------
-
+# donut + order bar side by side
 left_col, right_col = st.columns([2, 3])
 
 with left_col:
@@ -205,10 +172,7 @@ with right_col:
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Risk table
-# ---------------------------------------------------------------------------
-
+# risk table
 st.subheader("Inventory Risk Assessment")
 st.caption(
     "Days of Stock = current stock ÷ daily demand  "
@@ -251,10 +215,7 @@ st.dataframe(
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Medications table
-# ---------------------------------------------------------------------------
-
+# meds table
 st.subheader("Medications by ATC Group")
 st.caption("Risk tier and order quantity are inherited from the parent ATC code group")
 

@@ -1,45 +1,3 @@
-"""
-scripts/ingest_data.py
-----------------------
-Generic CSV ingester — loads historical sales data from any pharmacy into
-data/inventory.db.  This script is the pharmacy-agnostic alternative to
-ingest_kaggle.py, which is specific to one Kaggle dataset.
-
-Expected CSV format (long / tidy form — one row per ATC code per date):
-
-    date,atc_code,quantity
-    2023-01-01,M01AB,45.0
-    2023-01-01,N02BE,23.0
-    ...
-
-Column names can be customised via --date-col / --atc-col / --qty-col.
-
-Behaviour for unknown ATC codes
---------------------------------
-- If all ATC codes in the CSV already exist in atc_categories, data loads
-  immediately.
-- If unknown codes are found and --register is supplied, they are
-  auto-registered in atc_categories and atc_inventory (stock=0) before
-  loading.
-- Without --register the script exits with a clear error listing the
-  unknown codes so the operator can run register_atc.py first.
-
-Usage
------
-  # Minimal — load daily sales from a CSV:
-  python scripts/ingest_data.py --csv path/to/sales.csv
-
-  # Specify column names when they differ from the defaults:
-  python scripts/ingest_data.py --csv path/to/sales.csv \\
-      --date-col SaleDate --atc-col DrugCode --qty-col Units
-
-  # Auto-register any new ATC codes found in the file:
-  python scripts/ingest_data.py --csv path/to/sales.csv --register
-
-  # Weekly granularity and a custom DB path:
-  python scripts/ingest_data.py --csv path/to/sales.csv \\
-      --granularity weekly --db custom/pharmacy.db
-"""
 
 import argparse
 import sqlite3
@@ -48,18 +6,11 @@ from pathlib import Path
 
 import pandas as pd
 
-# ---------------------------------------------------------------------------
-# Make the project root importable so we can use spis.*
-# ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from spis.data.database import init_db  # noqa: E402
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _load_and_normalise(
     csv_path: Path,
@@ -144,10 +95,6 @@ def _register_unknown_codes(
         )
         print(f"[ingest] Registered new ATC code: {code}  (update metadata via register_atc.py)")
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     parser = argparse.ArgumentParser(

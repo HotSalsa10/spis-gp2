@@ -1,17 +1,3 @@
-"""
-scripts/run_api.py
-------------------
-Phase 5 CLI: launch the SPIS Flask REST API server.
-
-Starts the development server on the configured host/port.
-Model artifacts (xgboost_forecaster.joblib + label_encoder.joblib) must
-exist in the models/ directory before starting (run scripts/train_model.py
-first).
-
-Usage:
-    python scripts/run_api.py
-    python scripts/run_api.py --host 0.0.0.0 --port 8080 --debug
-"""
 
 import argparse
 import sys

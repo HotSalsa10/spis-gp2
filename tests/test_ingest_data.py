@@ -1,11 +1,3 @@
-"""
-tests/test_ingest_data.py
---------------------------
-Unit tests for helper functions in scripts/ingest_data.py.
-
-Tests cover CSV normalisation, DB code lookup, and unknown-code registration.
-The main() entrypoint is a CLI wrapper and is not tested here.
-"""
 
 import sqlite3
 import sys
@@ -24,10 +16,6 @@ from ingest_data import (  # noqa: E402
     _register_unknown_codes,
 )
 
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def sample_csv(tmp_path):
@@ -59,10 +47,6 @@ def empty_db(tmp_path):
         conn.commit()
     return db_path
 
-
-# ---------------------------------------------------------------------------
-# Tests: _load_and_normalise
-# ---------------------------------------------------------------------------
 
 def test_load_normalise_returns_expected_columns(sample_csv):
     """Output DataFrame must have exactly the 5 expected columns."""
@@ -105,10 +89,6 @@ def test_load_normalise_missing_column_exits(sample_csv):
         _load_and_normalise(sample_csv, "date", "wrong_col", "quantity", "daily")
 
 
-# ---------------------------------------------------------------------------
-# Tests: _get_db_atc_codes
-# ---------------------------------------------------------------------------
-
 def test_get_db_atc_codes_empty_db(empty_db):
     """A freshly created DB with no rows should return an empty set."""
     with sqlite3.connect(empty_db) as conn:
@@ -131,10 +111,6 @@ def test_get_db_atc_codes_returns_known_codes(empty_db):
         codes = _get_db_atc_codes(conn)
     assert codes == {"M01AB", "N02BE"}
 
-
-# ---------------------------------------------------------------------------
-# Tests: _register_unknown_codes
-# ---------------------------------------------------------------------------
 
 def test_register_unknown_codes_inserts_atc_categories(empty_db):
     """Unknown codes must appear in atc_categories after registration."""

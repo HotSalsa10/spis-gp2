@@ -1,22 +1,4 @@
-"""
-spis/models/forecaster.py
--------------------------
-Phase 3 XGBoost demand forecaster for the SPIS project.
-
-Trains a single XGBoost regressor across all ATC codes, compares it
-against naive and moving-average baselines, and saves model artifacts
-for downstream use (Flask API in Phase 5).
-
-Model input: 36 features (35 from pipeline + atc_encoded).
-Baseline MAE history: naive=4.23, moving-avg=2.89, XGBoost Run3=1.58 (27 features).
-
-Usage:
-    from spis.models.forecaster import train_and_evaluate, load_model
-    results = train_and_evaluate("data/processed/train.csv",
-                                 "data/processed/test.csv",
-                                 "models")
-    model, encoder = load_model("models")
-"""
+"""XGBoost demand forecaster + naive/moving-avg baselines."""
 
 import json
 from pathlib import Path
@@ -28,43 +10,31 @@ from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBRegressor
 
-# Feature columns used by the model (36 total).
+# 36 columns total: atc_encoded + 35 engineered features
 FEATURE_COLS = [
     "atc_encoded",
-    # Calendar (12)
+    # calendar (12)
     "day_of_week", "day_of_month", "month", "year", "week_of_year", "is_weekend",
     "is_holiday", "season", "is_payday_window", "is_school_holiday",
     "quarter", "days_to_month_end",
-    # Lags (7)
+    # lags (7)
     "lag_1", "lag_2", "lag_3", "lag_7", "lag_14", "lag_28", "lag_365",
-    # Rolling windows (12)
+    # rolling (12)
     "rolling_mean_7", "rolling_std_7", "rolling_mean_14", "rolling_mean_28",
     "rolling_std_28", "rolling_min_7", "rolling_max_7", "rolling_mean_90",
     "rolling_mean_365", "ema_7", "ema_14", "ema_28",
-    # Derived (4)
+    # derived (4)
     "lag_ratio_7", "trend_counter", "rolling_range_7", "ema_ratio",
 ]
 
 TARGET_COL = "quantity"
 
 
-# ---------------------------------------------------------------------------
-# Encoding
-# ---------------------------------------------------------------------------
-
 def encode_atc(
     train: pd.DataFrame,
     test: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, LabelEncoder]:
-    """
-    Label-encode the atc_code column into atc_encoded (integer).
-
-    The encoder is fitted on train only; test codes are transformed using
-    the same mapping.
-
-    Returns:
-        (train, test, encoder) tuple.
-    """
+    """Fit encoder on train, apply to both."""
     encoder = LabelEncoder()
     train = train.copy()
     test = test.copy()
@@ -75,41 +45,25 @@ def encode_atc(
     return train, test, encoder
 
 
-# ---------------------------------------------------------------------------
-# Baselines
-# ---------------------------------------------------------------------------
-
 def baseline_naive(test: pd.DataFrame) -> np.ndarray:
-    """Naive baseline: predict lag_1 (yesterday's value). NaN -> 0."""
+    """Yesterday's value."""
     return test["lag_1"].fillna(0).values
 
 
 def baseline_moving_avg(test: pd.DataFrame) -> np.ndarray:
-    """Moving-average baseline: predict rolling_mean_7. NaN -> 0."""
+    """7-day rolling mean."""
     return test["rolling_mean_7"].fillna(0).values
 
 
-# ---------------------------------------------------------------------------
-# Evaluation
-# ---------------------------------------------------------------------------
-
 def evaluate(y_true: np.ndarray, y_pred: np.ndarray, label: str) -> dict:
-    """
-    Compute MAE, RMSE, and MAPE for a set of predictions.
-
-    MAPE uses a guard against division by zero: rows where y_true == 0
-    are excluded from the percentage calculation.
-
-    Returns:
-        dict with keys: model, mae, rmse, mape.
-    """
+    """MAE, RMSE, MAPE. Skips zero-actual rows for MAPE."""
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
 
     mae = float(np.mean(np.abs(y_true - y_pred)))
     rmse = float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
-    # MAPE — guard against division by zero
+    # avoid div by zero on zero-actual rows
     mask = y_true != 0
     if mask.sum() > 0:
         mape = float(np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100)
@@ -119,18 +73,8 @@ def evaluate(y_true: np.ndarray, y_pred: np.ndarray, label: str) -> dict:
     return {"model": label, "mae": mae, "rmse": rmse, "mape": mape}
 
 
-# ---------------------------------------------------------------------------
-# XGBoost training
-# ---------------------------------------------------------------------------
-
 def train_xgboost(X_train: pd.DataFrame, y_train: pd.Series) -> XGBRegressor:
-    """
-    Train an XGBoost regressor with GridSearchCV
-    (TimeSeriesSplit, n_splits=5).
-
-    Returns:
-        The best estimator from the grid search.
-    """
+    """GridSearchCV with TimeSeriesSplit (5 folds)."""
     param_grid = {
         "n_estimators":     [500, 800],
         "max_depth":        [6, 8],
@@ -165,19 +109,11 @@ def train_xgboost(X_train: pd.DataFrame, y_train: pd.Series) -> XGBRegressor:
     return grid.best_estimator_
 
 
-# ---------------------------------------------------------------------------
-# Feature importance
-# ---------------------------------------------------------------------------
-
 def get_feature_importance(
     model: XGBRegressor,
     feature_names: list[str],
 ) -> pd.DataFrame:
-    """
-    Return a DataFrame of feature importances sorted descending.
-
-    Columns: feature, importance.
-    """
+    """Sorted descending."""
     importance = model.feature_importances_
     df = pd.DataFrame({
         "feature": feature_names,
@@ -186,51 +122,33 @@ def get_feature_importance(
     return df.sort_values("importance", ascending=False).reset_index(drop=True)
 
 
-# ---------------------------------------------------------------------------
-# Orchestrator
-# ---------------------------------------------------------------------------
-
 def train_and_evaluate(
     train_path: str | Path,
     test_path: str | Path,
     output_dir: str | Path,
 ) -> list[dict]:
-    """
-    Full training pipeline:
-        1. Load train/test CSVs
-        2. Encode atc_code
-        3. Compute baseline predictions
-        4. Train XGBoost via GridSearchCV
-        5. Evaluate all models
-        6. Save artifacts (model, encoder, metrics)
-        7. Print comparison table
-
-    Returns:
-        List of metric dicts (one per model).
-    """
+    """Load data, train XGBoost + baselines, save artifacts."""
     train_path = Path(train_path)
     test_path = Path(test_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)
-    print("SPIS XGBoost Forecaster -- Phase 3")
+    print("SPIS XGBoost Forecaster")
     print("=" * 60)
 
-    # 1. Load data
     print("\n[1/5] Loading data ...")
     train = pd.read_csv(train_path, parse_dates=["date"])
     test = pd.read_csv(test_path, parse_dates=["date"])
     print(f"  Train: {len(train):,} rows")
     print(f"  Test : {len(test):,} rows")
 
-    # 2. Encode ATC codes
     print("\n[2/5] Encoding ATC codes ...")
     train, test, encoder = encode_atc(train, test)
     print(f"  Classes: {list(encoder.classes_)}")
 
-    # 3. Prepare features / target — drop rows with NaN features instead
-    #    of filling with 0 (which misleads the model about missing history).
+    # drop NaN rows instead of filling with 0 (would teach model that
+    # "no history" looks like a zero-sales day)
     train_clean = train.dropna(subset=FEATURE_COLS)
     dropped = len(train) - len(train_clean)
     if dropped > 0:
@@ -241,7 +159,6 @@ def train_and_evaluate(
     X_test = test[FEATURE_COLS].fillna(0)
     y_test = test[TARGET_COL]
 
-    # 4. Baselines
     print("\n[3/5] Computing baselines ...")
     pred_naive = baseline_naive(test)
     pred_mavg = baseline_moving_avg(test)
@@ -295,20 +212,7 @@ def train_and_evaluate(
     return results
 
 
-# ---------------------------------------------------------------------------
-# Model loading (for Phase 5 API)
-# ---------------------------------------------------------------------------
-
 def load_model(model_dir: str | Path) -> tuple[XGBRegressor, LabelEncoder]:
-    """
-    Load saved model and label encoder from disk.
-
-    Args:
-        model_dir: Directory containing the .joblib files.
-
-    Returns:
-        (model, encoder) tuple.
-    """
     model_dir = Path(model_dir)
     model = joblib.load(model_dir / "xgboost_forecaster.joblib")
     encoder = joblib.load(model_dir / "label_encoder.joblib")

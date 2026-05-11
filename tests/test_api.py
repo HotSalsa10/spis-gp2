@@ -1,15 +1,3 @@
-"""
-tests/test_api.py
-------------------
-Pytest suite for spis.api (Phase 5).
-Uses Flask test client with temporary artifacts -- no production data required.
-
-Coverage:
-    GET /health                     -- returns 200, status=ok, version field
-    GET /api/v1/risk                -- returns risk records for all ATC codes
-    GET /api/v1/forecast/<atc_code> -- returns 30-day forecast for one code
-    Error cases                     -- unknown ATC -> 404, missing model -> 503
-"""
 
 import sqlite3
 from pathlib import Path
@@ -27,10 +15,6 @@ from spis.models.forecaster import FEATURE_COLS
 
 ATC_CODES = ["M01AB", "M01AE", "N02BA", "N02BE", "N05B", "N05C", "R03", "R06"]
 
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
 def tiny_encoder() -> LabelEncoder:
@@ -153,10 +137,6 @@ def client_no_model(app_no_model):
     return app_no_model.test_client()
 
 
-# ---------------------------------------------------------------------------
-# Tests -- GET /health
-# ---------------------------------------------------------------------------
-
 def test_health_returns_200(client):
     """Health endpoint must return HTTP 200."""
     assert client.get("/health").status_code == 200
@@ -175,10 +155,6 @@ def test_health_includes_version(client):
     assert isinstance(data["version"], str)
     assert len(data["version"]) > 0
 
-
-# ---------------------------------------------------------------------------
-# Tests -- GET /api/v1/risk
-# ---------------------------------------------------------------------------
 
 def test_risk_returns_200(client):
     """Risk endpoint must return HTTP 200."""
@@ -234,10 +210,6 @@ def test_risk_no_model_returns_503(client_no_model):
     """Risk endpoint must return HTTP 503 when model artifacts are absent."""
     assert client_no_model.get("/api/v1/risk").status_code == 503
 
-
-# ---------------------------------------------------------------------------
-# Tests -- GET /api/v1/forecast/<atc_code>
-# ---------------------------------------------------------------------------
 
 def test_forecast_known_code_returns_200(client):
     """Forecast endpoint must return 200 for a known ATC code."""

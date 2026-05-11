@@ -1,12 +1,3 @@
-"""
-spis/dashboard/pages/5_Receive_Stock.py
------------------------------------------
-Page 5 -- Receive new stock batches and recall faulty lots.
-
-Pharmacists can register incoming shipments and recall contaminated batches.
-Both operations update atc_inventory.current_stock immediately and append
-an entry to data/stock_audit.csv for traceability.
-"""
 
 from datetime import date, timedelta
 
@@ -34,10 +25,6 @@ check_required_files()
 
 atc_info = load_atc_labels(str(DB_PATH))
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=300)
 def _load_batches_cached(db_path: str) -> list[dict]:

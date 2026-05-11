@@ -1,8 +1,3 @@
-"""
-tests/test_catalog.py
----------------------
-Tests for spis.data.catalog helpers (add_atc_code, add_drug).
-"""
 
 import pytest
 from pathlib import Path
@@ -17,10 +12,6 @@ def db(tmp_path):
     init_db(db_path)
     return db_path
 
-
-# ---------------------------------------------------------------------------
-# add_atc_code
-# ---------------------------------------------------------------------------
 
 class TestAddAtcCode:
     def test_add_atc_code_success(self, db):
@@ -52,10 +43,6 @@ class TestAddAtcCode:
         codes = {c["atc_code"]: c for c in list_atc_codes(db)}
         assert "B05XA" in codes
 
-
-# ---------------------------------------------------------------------------
-# add_drug
-# ---------------------------------------------------------------------------
 
 class TestAddDrug:
     def test_add_drug_happy_path(self, db):

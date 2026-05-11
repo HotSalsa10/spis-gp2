@@ -1,8 +1,3 @@
-"""
-tests/test_expiry_finance.py
------------------------------
-Unit tests for spis/models/expiry_finance.py.
-"""
 import pytest
 from spis.models.expiry_advisor import ExpiryOffer
 from spis.models.expiry_finance import (
@@ -36,10 +31,6 @@ def _batch(batch_number="LOT-001", applied_discount=None, returned=False) -> dic
     return {"batch_number": batch_number, "applied_discount": applied_discount, "returned": returned}
 
 
-# ---------------------------------------------------------------------------
-# compute_value_at_risk
-# ---------------------------------------------------------------------------
-
 def test_value_at_risk_single():
     assert compute_value_at_risk([_offer(waste_value=600.0)]) == 600.0
 
@@ -52,10 +43,6 @@ def test_value_at_risk_sum():
 def test_value_at_risk_empty():
     assert compute_value_at_risk([]) == 0.0
 
-
-# ---------------------------------------------------------------------------
-# compute_recovered
-# ---------------------------------------------------------------------------
 
 def test_recovered_with_15pct_discount():
     # 60 units * SAR10 * (1 - 0.15) = SAR 510.0
@@ -83,10 +70,6 @@ def test_recovered_falls_back_to_suggested():
     assert compute_recovered([offer], [_batch(batch_number="OTHER", applied_discount=0)]) == 510.0
 
 
-# ---------------------------------------------------------------------------
-# compute_waste
-# ---------------------------------------------------------------------------
-
 def test_waste_cannot_dispense():
     offer = _offer(offer_label="Cannot Dispense", waste_value=600.0)
     assert compute_waste([offer], [_batch(returned=False)]) == 600.0
@@ -101,10 +84,6 @@ def test_waste_zero_for_normal_offer():
     offer = _offer(offer_label="Early Discount", waste_value=600.0)
     assert compute_waste([offer], [_batch(returned=False)]) == 0.0
 
-
-# ---------------------------------------------------------------------------
-# waste_by_atc
-# ---------------------------------------------------------------------------
 
 def test_waste_by_atc_groups():
     offers = [

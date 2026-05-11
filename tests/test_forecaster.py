@@ -1,9 +1,3 @@
-"""
-tests/test_forecaster.py
-------------------------
-Pytest suite for spis.models.forecaster (Phase 3).
-Uses synthetic data fixtures — no database or CSV files required.
-"""
 
 import json
 
@@ -22,10 +16,6 @@ from spis.models.forecaster import (
     train_xgboost,
 )
 
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def synthetic_train_test():
@@ -84,10 +74,6 @@ def synthetic_train_test():
     return train, test
 
 
-# ---------------------------------------------------------------------------
-# Tests — encode_atc
-# ---------------------------------------------------------------------------
-
 def test_encode_atc_creates_column(synthetic_train_test):
     """encode_atc should add an atc_encoded integer column."""
     train, test = synthetic_train_test
@@ -111,10 +97,6 @@ def test_encode_atc_consistent(synthetic_train_test):
             assert train_mapping[code] == test_mapping[code]
 
 
-# ---------------------------------------------------------------------------
-# Tests — baselines
-# ---------------------------------------------------------------------------
-
 def test_baseline_naive_uses_lag1(synthetic_train_test):
     """Naive baseline should return lag_1 values."""
     _, test = synthetic_train_test
@@ -130,10 +112,6 @@ def test_baseline_moving_avg_uses_rolling7(synthetic_train_test):
     expected = test["rolling_mean_7"].fillna(0).values
     np.testing.assert_array_equal(pred, expected)
 
-
-# ---------------------------------------------------------------------------
-# Tests — evaluate
-# ---------------------------------------------------------------------------
 
 def test_evaluate_perfect_predictions():
     """Perfect predictions should give zero error across all metrics."""
@@ -162,10 +140,6 @@ def test_evaluate_known_error():
     assert abs(result["mape"] - 100 * np.mean([0.2, 0.1, 0.1])) < 1e-4
 
 
-# ---------------------------------------------------------------------------
-# Tests — train_xgboost
-# ---------------------------------------------------------------------------
-
 def test_train_xgboost_returns_model(synthetic_train_test):
     """train_xgboost should return a fitted XGBRegressor."""
     train, _ = synthetic_train_test
@@ -179,10 +153,6 @@ def test_train_xgboost_returns_model(synthetic_train_test):
     assert isinstance(model, XGBRegressor)
     assert hasattr(model, "predict")
 
-
-# ---------------------------------------------------------------------------
-# Tests — save / load roundtrip
-# ---------------------------------------------------------------------------
 
 def test_load_model_roundtrip(tmp_path, synthetic_train_test):
     """Saving and loading model artifacts should produce identical predictions."""

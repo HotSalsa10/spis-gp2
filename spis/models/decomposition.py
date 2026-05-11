@@ -1,13 +1,4 @@
-"""
-spis/models/decomposition.py
------------------------------
-Item 7: additive seasonal decomposition wrapper.
-
-Public API:
-    decompose(series, period=365) -> dict
-        Keys: 'trend', 'seasonal', 'residual', 'observed'
-              Each is a numpy float64 array of the same length as the input.
-"""
+"""Additive seasonal decomposition via statsmodels."""
 
 from __future__ import annotations
 
@@ -17,22 +8,7 @@ from statsmodels.tsa.seasonal import seasonal_decompose
 
 
 def decompose(series: "pd.Series | np.ndarray", period: int = 365) -> dict:
-    """
-    Run additive seasonal decomposition on a daily time series.
-
-    Args:
-        series: 1-D numeric time series (pandas Series or array).
-                Must have at least 2 * period observations.
-        period: Seasonal period in samples.  Defaults to 365 (daily data).
-
-    Returns:
-        Dict with keys 'trend', 'seasonal', 'residual', 'observed'.
-        Each value is a numpy float64 array of the same length as series.
-        Edge NaNs in trend are extrapolated; remaining NaNs are zeroed.
-
-    Raises:
-        ValueError: if period < 2 or series is too short.
-    """
+    """Returns {trend, seasonal, residual, observed} as float arrays."""
     if period < 2:
         raise ValueError(f"period must be >= 2, got {period}")
 

@@ -1,8 +1,3 @@
-"""
-tests/test_decomposition.py
-----------------------------
-Unit tests for spis.models.decomposition.decompose().
-"""
 
 import numpy as np
 import pandas as pd
@@ -22,11 +17,6 @@ def _sine_series(n: int = _N, period: int = 365) -> pd.Series:
     return pd.Series(trend + seasonal)
 
 
-# ---------------------------------------------------------------------------
-# Shape
-# ---------------------------------------------------------------------------
-
-
 def test_output_shape():
     """All output arrays must have the same length as the input series."""
     s = _sine_series()
@@ -38,11 +28,6 @@ def test_output_shape():
     assert out["observed"].shape == (len(s),)
 
 
-# ---------------------------------------------------------------------------
-# Reconstruction
-# ---------------------------------------------------------------------------
-
-
 def test_decomposition_reconstructs_series():
     """trend + seasonal + residual must equal observed within floating-point tolerance."""
     s = _sine_series()
@@ -50,11 +35,6 @@ def test_decomposition_reconstructs_series():
 
     reconstructed = out["trend"] + out["seasonal"] + out["residual"]
     np.testing.assert_allclose(reconstructed, out["observed"], atol=1e-6)
-
-
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
 
 
 def test_period_too_small_raises():
@@ -69,11 +49,6 @@ def test_series_too_short_raises():
     short = pd.Series(np.ones(10))
     with pytest.raises(ValueError, match="shorter"):
         decompose(short, period=365)
-
-
-# ---------------------------------------------------------------------------
-# NaN handling
-# ---------------------------------------------------------------------------
 
 
 def test_nan_handling_returns_finite_arrays():

@@ -1,12 +1,3 @@
-"""
-scripts/run_dashboard.py
-------------------------
-Convenience launcher for the SPIS Streamlit dashboard.
-
-Usage:
-    python scripts/run_dashboard.py
-    python scripts/run_dashboard.py --port 8502
-"""
 
 import argparse
 import subprocess

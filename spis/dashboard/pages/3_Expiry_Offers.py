@@ -1,12 +1,3 @@
-"""
-spis/dashboard/pages/3_Expiry_Offers.py
------------------------------------------
-Page 3 — Expiry-aware discount offer recommendations.
-
-Loads all inventory batches from the database, runs the expiry advisor,
-and displays a colour-coded table with suggested promotions plus a
-waste recovery summary.
-"""
 
 from datetime import date
 
@@ -32,9 +23,6 @@ from spis.models.expiry_finance import (
     waste_by_atc,
 )
 
-# ---------------------------------------------------------------------------
-# Page config
-# ---------------------------------------------------------------------------
 
 st.set_page_config(page_title="Expiry Offers — SPIS", layout="wide")
 inject_css()
@@ -47,9 +35,6 @@ st.caption(
 
 check_required_files()
 
-# ---------------------------------------------------------------------------
-# Load data
-# ---------------------------------------------------------------------------
 
 with st.spinner("Running expiry analysis ..."):
     model, encoder, inventory = load_artifacts()
@@ -66,9 +51,6 @@ batches  = _load_batches_cached(str(DB_PATH))
 offers   = assess_all_batches(batches, demand_by_atc)
 atc_info = load_atc_labels(str(DB_PATH))
 
-# ---------------------------------------------------------------------------
-# Financial summary
-# ---------------------------------------------------------------------------
 
 sar_at_risk    = compute_value_at_risk(offers)
 sar_recovered  = compute_recovered(offers, batches)
@@ -114,9 +96,6 @@ if offers:
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Offers table
-# ---------------------------------------------------------------------------
 
 OFFER_BADGE = {
     "Monitor":          "Monitor (no discount yet)",

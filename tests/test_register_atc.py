@@ -1,19 +1,8 @@
-"""
-tests/test_register_atc.py
----------------------------
-Unit tests for _infer_levels() -- the pure function that derives WHO ATC
-level codes from a full ATC code string.  Moved to spis.data.catalog in
-Phase 9 Item 8 (shared by CLI and dashboard).
-"""
 
 import pytest
 
 from spis.data.catalog import _infer_levels
 
-
-# ---------------------------------------------------------------------------
-# Tests: _infer_levels
-# ---------------------------------------------------------------------------
 
 def test_infer_levels_standard_code():
     """A 5-char level-4 ATC code (e.g. A10BA) should give level1='A', level2='A10'."""

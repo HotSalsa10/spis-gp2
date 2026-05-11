@@ -1,22 +1,4 @@
-"""
-spis/data/database.py
----------------------
-Initialises the SPIS SQLite database schema and seeds the ATC / drug reference data.
-
-Schema (8 tables):
-    atc_categories  -- ATC-4 classification reference (8 rows)
-    drugs           -- Clinical drug catalog (57 rows)
-    sales           -- Time-series fact table (rows inserted by ingest_kaggle.py)
-    atc_inventory   -- Current stock level per ATC code (Phase 4)
-    inventory_batches -- Per-batch expiry and cost tracking (Phase 8.5)
-    alerts          -- Notification alerts for low stock and expiry events (Phase 9)
-    suppliers       -- Supplier directory (Phase 9 Item 9)
-    purchase_orders -- Sent PO history (Phase 9 Item 9)
-
-Usage:
-    from spis.data.database import init_db
-    init_db("data/inventory.db")
-"""
+"""SQLite schema + seed data + CRUD helpers."""
 
 import csv
 import sqlite3
@@ -24,12 +6,7 @@ import warnings
 from datetime import date as _date, datetime, timezone
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Reference Data — ATC Classification
-# ---------------------------------------------------------------------------
-# The Kaggle dataset contains sales aggregated at ATC-4 level for 8 categories.
-# Source: WHO ATC/DDD Index (https://www.whocc.no/atc_ddd_index/)
-
+# ATC-4 categories from the Kaggle dataset (WHO ATC/DDD index)
 ATC_CATEGORIES = [
     # (atc_code, atc_name, system_name, level1_code, level2_code)
     ("M01AB", "Acetic acid derivatives",           "Musculoskeletal system", "M", "M01"),
@@ -42,89 +19,49 @@ ATC_CATEGORIES = [
     ("R06",   "Antihistamines for systemic use",    "Respiratory system",     "R", "R06"),
 ]
 
-# ---------------------------------------------------------------------------
-# Reference Data — Drug Catalog (57 drugs across 8 ATC categories)
-# ---------------------------------------------------------------------------
-# is_critical = 1 when a stockout poses direct clinical harm:
-#   • N05B/N05C — controlled substances; abrupt withdrawal -> seizures / crisis
-#   • N02BE      — first-line analgesic (Paracetamol); mass-demand essential
-#   • R03        — bronchodilators / ICS; life-critical for asthma / COPD patients
+# is_critical = 1 when stockout = direct clinical risk
+# (N05B/N05C controlled substances, N02BE paracetamol, R03 inhalers)
 
-# ---------------------------------------------------------------------------
-# Reference Data — Inventory Batches (Phase 8.5 expiry seed data)
-# ---------------------------------------------------------------------------
-# Mock batches chosen to demonstrate all discount tiers in the demo.
-# Dates are relative to the project demo date (March 30, 2026):
-#   LOT-2026-001 : expires Apr 15 2026 ( 16 days) -> Cannot Dispense (< 30d) -- return to supplier
-#   LOT-2026-002 : expires May 10 2026 ( 41 days) -> Special Offer 25% off   (30-59d)
-#   LOT-2026-003 : expires Jun 15 2026 ( 77 days) -> Early Discount 15% off  (60-90d)
-
+# demo batches covering all discount tiers (dates relative to ~Mar 2026)
 BATCH_SEED = [
-    # (atc_code, batch_number, quantity, unit_cost, expiry_date, received_date, notes)
     ("M01AE", "LOT-2026-001", 300.0, 0.50, "2026-04-15", "2025-10-01",
-     "16 days to expiry -- Cannot Dispense, return to supplier"),
+     "16d to expiry - cannot dispense, return"),
     ("R06",   "LOT-2026-002", 400.0, 0.35, "2026-05-10", "2025-10-01",
-     "41 days to expiry -- Special Offer 25% off"),
+     "41d to expiry - special offer 25% off"),
     ("N02BA", "LOT-2026-003", 150.0, 0.20, "2026-06-15", "2025-11-01",
-     "77 days to expiry -- Early Discount 15% off"),
+     "77d to expiry - early discount 15%"),
 ]
 
-# ---------------------------------------------------------------------------
-# Reference Data — ATC Inventory (Phase 4 seed stock levels)
-# ---------------------------------------------------------------------------
-# Mock stock values chosen to demonstrate all 4 risk tiers in the demo:
-#   CRITICAL (DoS < 3)  : N02BE (~2 days), R03 (~2 days)
-#   LOW      (3 <= < 7) : M01AB (~6 days)
-#   OK       (7 <= < 30): N02BA (~15 days), N05B (~20 days), N05C (~25 days)
-#   OVERSTOCK (>= 30)   : M01AE (~40 days), R06 (~40 days)
-
+# stock values chosen so demo shows all 4 risk tiers
 ATC_INVENTORY_SEED = [
-    # (atc_code, current_stock, notes)
-    ("M01AB", 60.0,  "~6 days of stock (LOW risk)"),
-    ("M01AE", 500.0, "~40 days of stock (OVERSTOCK)"),
-    ("N02BA", 90.0,  "~15 days of stock (OK)"),
-    ("N02BE", 40.0,  "~2 days of stock (CRITICAL)"),
-    ("N05B",  100.0, "~20 days of stock (OK)"),
-    ("N05C",  75.0,  "~25 days of stock (OK)"),
-    ("R03",   25.0,  "~2 days of stock (CRITICAL)"),
-    ("R06",   420.0, "~40 days of stock (OVERSTOCK)"),
+    ("M01AB", 60.0,  "LOW"),
+    ("M01AE", 500.0, "OVERSTOCK"),
+    ("N02BA", 90.0,  "OK"),
+    ("N02BE", 40.0,  "CRITICAL"),
+    ("N05B",  100.0, "OK"),
+    ("N05C",  75.0,  "OK"),
+    ("R03",   25.0,  "CRITICAL"),
+    ("R06",   420.0, "OVERSTOCK"),
 ]
 
-# ---------------------------------------------------------------------------
-# Reference Data — Suppliers (Phase 9 Item 9)
-# ---------------------------------------------------------------------------
-# Real Saudi pharmaceutical distributors / manufacturers used as demo seeds.
-# Company names are factual (publicly listed firms operating in KSA).
-# Email and phone fields use clearly placeholder values -- the operator must
-# update them with the actual contact channels their pharmacy uses before
-# any real purchase order is sent.
-
+# Real Saudi pharma distributors. Emails/phones are placeholders --
+# replace with real contacts before sending any actual PO.
 SUPPLIERS_SEED = [
-    # (supplier_id, name, email, phone, lead_time_days, notes)
     (1, "Tamer Group",
      "info@tamergroup.com",      "+966 12 000 0001", 3,
-     "Major Jeddah-based pharma distributor (est. 1922) -- "
-     "demo contact, replace before live use."),
+     "Jeddah pharma distributor (est. 1922) - demo contact"),
     (2, "Banaja Holdings",
      "info@banaja.com",          "+966 12 000 0002", 5,
-     "Jeddah-based pharma distributor (est. 1948) -- "
-     "demo contact, replace before live use."),
+     "Jeddah pharma distributor (est. 1948) - demo contact"),
     (3, "Cigalah Group",
      "info@cigalah.com",         "+966 12 000 0003", 7,
-     "Saudi pharma distributor with controlled-substance licensing -- "
-     "demo contact, replace before live use."),
+     "controlled-substance licensing - demo contact"),
     (4, "Jamjoom Pharma",
      "info@jamjoompharma.com",   "+966 12 000 0004", 4,
-     "Saudi pharma manufacturer (est. 1988) -- "
-     "demo contact, replace before live use."),
+     "Saudi pharma manufacturer (est. 1988) - demo contact"),
 ]
 
-# Assign each ATC code to its primary supplier (used to UPDATE atc_categories on seed).
-# Mapping reflects each supplier's known strength:
-#   Tamer Group     -> MSK / NSAID volume distribution     (M01AB, M01AE)
-#   Banaja Holdings -> general analgesic portfolio          (N02BA, N02BE)
-#   Cigalah Group   -> controlled-substance licensing       (N05B,  N05C)
-#   Jamjoom Pharma  -> respiratory & antihistamine products (R03,   R06)
+# Tamer -> MSK, Banaja -> analgesics, Cigalah -> controlled, Jamjoom -> respiratory
 ATC_SUPPLIER_MAP = {
     "M01AB": 1, "M01AE": 1,
     "N02BA": 2, "N02BE": 2,
@@ -135,7 +72,7 @@ ATC_SUPPLIER_MAP = {
 DRUGS_CATALOG = [
     # (drug_name, atc_code, unit, is_critical)
 
-    # ── M01AB — Anti-inflammatory, acetic acid derivatives ────────────────
+    # M01AB - acetic acid NSAIDs
     ("Diclofenac",          "M01AB", "tablets",  0),
     ("Indomethacin",        "M01AB", "capsules", 0),
     ("Ketorolac",           "M01AB", "tablets",  0),
@@ -144,7 +81,7 @@ DRUGS_CATALOG = [
     ("Aceclofenac",         "M01AB", "tablets",  0),
     ("Nabumetone",          "M01AB", "tablets",  0),
 
-    # ── M01AE — Propionic acid derivatives ───────────────────────────────
+    # M01AE - propionic acid NSAIDs
     ("Ibuprofen",           "M01AE", "tablets",  0),
     ("Naproxen",            "M01AE", "tablets",  0),
     ("Ketoprofen",          "M01AE", "capsules", 0),
@@ -154,22 +91,22 @@ DRUGS_CATALOG = [
     ("Loxoprofen",          "M01AE", "tablets",  0),
     ("Dexibuprofen",        "M01AE", "tablets",  0),
 
-    # ── N02BA — Salicylic acid and derivatives ────────────────────────────
+    # N02BA - salicylates
     ("Aspirin",             "N02BA", "tablets",  0),
     ("Diflunisal",          "N02BA", "tablets",  0),
     ("Salsalate",           "N02BA", "tablets",  0),
     ("Benorylate",          "N02BA", "tablets",  0),
     ("Carbasalate calcium", "N02BA", "sachets",  0),
 
-    # ── N02BE — Anilides ──────────────────────────────────────────────────
-    ("Paracetamol",         "N02BE", "tablets",  1),  # first-line analgesic
+    # N02BE - anilides (paracetamol family)
+    ("Paracetamol",         "N02BE", "tablets",  1),
     ("Propacetamol",        "N02BE", "vials",    1),
     ("Phenacetin",          "N02BE", "tablets",  0),
     ("Bucetin",             "N02BE", "tablets",  0),
     ("Ethenzamide",         "N02BE", "tablets",  0),
     ("Acetanilide",         "N02BE", "tablets",  0),
 
-    # ── N05B — Anxiolytics (controlled substances) ────────────────────────
+    # N05B - anxiolytics (controlled)
     ("Diazepam",            "N05B",  "tablets",  1),
     ("Alprazolam",          "N05B",  "tablets",  1),
     ("Lorazepam",           "N05B",  "tablets",  1),
@@ -179,7 +116,7 @@ DRUGS_CATALOG = [
     ("Chlordiazepoxide",    "N05B",  "capsules", 1),
     ("Clobazam",            "N05B",  "tablets",  1),
 
-    # ── N05C — Hypnotics and sedatives (controlled substances) ────────────
+    # N05C - hypnotics/sedatives (controlled)
     ("Zolpidem",            "N05C",  "tablets",  1),
     ("Zopiclone",           "N05C",  "tablets",  1),
     ("Temazepam",           "N05C",  "capsules", 1),
@@ -188,8 +125,8 @@ DRUGS_CATALOG = [
     ("Estazolam",           "N05C",  "tablets",  1),
     ("Quazepam",            "N05C",  "tablets",  1),
 
-    # ── R03 — Drugs for obstructive airway diseases ───────────────────────
-    ("Salbutamol",          "R03",   "inhaler",  1),  # life-critical for asthma
+    # R03 - respiratory (inhalers)
+    ("Salbutamol",          "R03",   "inhaler",  1),
     ("Formoterol",          "R03",   "inhaler",  1),
     ("Salmeterol",          "R03",   "inhaler",  1),
     ("Terbutaline",         "R03",   "inhaler",  1),
@@ -198,7 +135,7 @@ DRUGS_CATALOG = [
     ("Budesonide",          "R03",   "inhaler",  1),
     ("Fluticasone",         "R03",   "inhaler",  1),
 
-    # ── R06 — Antihistamines for systemic use ────────────────────────────
+    # R06 - antihistamines
     ("Cetirizine",          "R06",   "tablets",  0),
     ("Loratadine",          "R06",   "tablets",  0),
     ("Fexofenadine",        "R06",   "tablets",  0),
@@ -209,20 +146,8 @@ DRUGS_CATALOG = [
     ("Ebastine",            "R06",   "tablets",  0),
 ]
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 def init_db(db_path: str | Path) -> None:
-    """
-    Create (or verify) the inventory.db schema and seed all reference data.
-
-    Safe to call on an existing database — uses IF NOT EXISTS / INSERT OR IGNORE
-    so re-running never corrupts data.
-
-    Args:
-        db_path: File path for the SQLite database (parent dirs created if needed).
-    """
+    """Idempotent. Safe to re-run."""
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -237,12 +162,7 @@ def init_db(db_path: str | Path) -> None:
     _print_summary(db_path)
 
 
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
 def _create_tables(conn: sqlite3.Connection) -> None:
-    """Define all DDL. Uses IF NOT EXISTS so this is idempotent."""
     conn.executescript("""
         -- ATC classification dimension
         CREATE TABLE IF NOT EXISTS atc_categories (
@@ -253,7 +173,7 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             level2_code TEXT NOT NULL   -- e.g. 'M01', 'N02', 'N05'
         );
 
-        -- Clinical drug catalog (reference; NOT the unit of sales aggregation)
+        -- drug catalog (reference only, sales aggregate at ATC level)
         CREATE TABLE IF NOT EXISTS drugs (
             drug_id     INTEGER PRIMARY KEY AUTOINCREMENT,
             drug_name   TEXT    NOT NULL UNIQUE,
@@ -263,7 +183,7 @@ def _create_tables(conn: sqlite3.Connection) -> None:
                         CHECK (is_critical IN (0, 1))
         );
 
-        -- Sales fact table — one row per (atc_code, date, granularity)
+        -- sales fact table
         CREATE TABLE IF NOT EXISTS sales (
             sale_id     INTEGER PRIMARY KEY AUTOINCREMENT,
             atc_code    TEXT    NOT NULL REFERENCES atc_categories(atc_code),
@@ -274,16 +194,13 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             quantity    REAL    NOT NULL CHECK (quantity >= 0)
         );
 
-        -- Indexes that speed up the two main query patterns:
-        --   1. Fetch time series for a single drug  ->  idx_sales_atc_date
-        --   2. Filter by granularity for modelling  ->  idx_sales_granularity
         CREATE INDEX IF NOT EXISTS idx_sales_atc_date
             ON sales (atc_code, sale_date);
 
         CREATE INDEX IF NOT EXISTS idx_sales_granularity
             ON sales (granularity);
 
-        -- Current stock level per ATC code (Phase 4 risk classification)
+        -- current stock per ATC
         CREATE TABLE IF NOT EXISTS atc_inventory (
             atc_code      TEXT PRIMARY KEY REFERENCES atc_categories(atc_code),
             current_stock REAL NOT NULL CHECK (current_stock >= 0),
@@ -291,7 +208,7 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             notes         TEXT
         );
 
-        -- Per-batch stock with expiry date and unit cost (Phase 8.5)
+        -- per-batch tracking (expiry + cost)
         CREATE TABLE IF NOT EXISTS inventory_batches (
             batch_id          INTEGER PRIMARY KEY AUTOINCREMENT,
             atc_code          TEXT    NOT NULL REFERENCES atc_categories(atc_code),
@@ -301,26 +218,26 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             expiry_date       TEXT    NOT NULL,
             received_date     TEXT    NOT NULL DEFAULT CURRENT_DATE,
             notes             TEXT,
-            applied_discount  REAL,   -- pharmacist override; NULL means use suggested
+            applied_discount  REAL,   -- NULL means use suggested
             returned          INTEGER NOT NULL DEFAULT 0 CHECK (returned IN (0, 1))
         );
 
         CREATE INDEX IF NOT EXISTS idx_batches_atc_expiry
             ON inventory_batches (atc_code, expiry_date);
 
-        -- Notification alerts for low-stock and expiry events (Phase 9 Item 6)
+        -- notification alerts
         CREATE TABLE IF NOT EXISTS alerts (
             alert_id        INTEGER PRIMARY KEY AUTOINCREMENT,
-            alert_type      TEXT NOT NULL,   -- 'LOW_STOCK' | 'EXPIRY' | 'RECALL'
+            alert_type      TEXT NOT NULL,
             atc_code        TEXT,
-            batch_number    TEXT,            -- nullable; used for EXPIRY/RECALL alerts
-            severity        TEXT NOT NULL,   -- 'CRITICAL' | 'WARNING' | 'INFO'
+            batch_number    TEXT,
+            severity        TEXT NOT NULL,
             message         TEXT NOT NULL,
             created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            acknowledged_at TEXT            -- NULL means open; ISO timestamp when acked
+            acknowledged_at TEXT
         );
 
-        -- Supplier directory (Phase 9 Item 9)
+        -- suppliers
         CREATE TABLE IF NOT EXISTS suppliers (
             supplier_id    INTEGER PRIMARY KEY,
             name           TEXT NOT NULL UNIQUE,
@@ -330,7 +247,7 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             notes          TEXT
         );
 
-        -- Sent purchase order history (Phase 9 Item 9)
+        -- sent PO history
         CREATE TABLE IF NOT EXISTS purchase_orders (
             po_id         INTEGER PRIMARY KEY AUTOINCREMENT,
             supplier_id   INTEGER REFERENCES suppliers(supplier_id),
@@ -344,7 +261,7 @@ def _create_tables(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_schema(conn: sqlite3.Connection) -> None:
-    """Add columns introduced after initial schema deployment (idempotent)."""
+    """Add new columns to old DBs."""
     existing_batches = {row[1] for row in conn.execute("PRAGMA table_info(inventory_batches)")}
     if "applied_discount" not in existing_batches:
         conn.execute("ALTER TABLE inventory_batches ADD COLUMN applied_discount REAL")
@@ -361,7 +278,6 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
 
 
 def _seed_reference_data(conn: sqlite3.Connection) -> None:
-    """Insert ATC categories, drug catalog, inventory rows, and suppliers (skips duplicates)."""
     conn.executemany(
         "INSERT OR IGNORE INTO atc_categories"
         " (atc_code, atc_name, system_name, level1_code, level2_code)"
@@ -406,32 +322,17 @@ def _print_summary(db_path: Path) -> None:
         alert_n    = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
         supplier_n = conn.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0]
         po_n       = conn.execute("SELECT COUNT(*) FROM purchase_orders").fetchone()[0]
-    print(f"[database]   atc_categories    : {atc_n:>4} rows")
-    print(f"[database]   drugs             : {drug_n:>4} rows  ({crit_n} critical)")
-    print(f"[database]   atc_inventory     : {inv_n:>4} rows  (Phase 4 stock levels)")
-    print(f"[database]   inventory_batches : {batch_n:>4} rows  (Phase 8.5 expiry tracking)")
-    print(f"[database]   alerts            : {alert_n:>4} rows  (Phase 9 notification center)")
-    print(f"[database]   suppliers         : {supplier_n:>4} rows  (Phase 9 PO suppliers)")
-    print(f"[database]   purchase_orders   : {po_n:>4} rows  (Phase 9 PO history)")
+    print(f"[database]   atc_categories    : {atc_n:>4}")
+    print(f"[database]   drugs             : {drug_n:>4}  ({crit_n} critical)")
+    print(f"[database]   atc_inventory     : {inv_n:>4}")
+    print(f"[database]   inventory_batches : {batch_n:>4}")
+    print(f"[database]   alerts            : {alert_n:>4}")
+    print(f"[database]   suppliers         : {supplier_n:>4}")
+    print(f"[database]   purchase_orders   : {po_n:>4}")
     print(f"[database]   sales             :    0 rows  (populated by ingest_kaggle.py)")
 
 
-# ---------------------------------------------------------------------------
-# Public helpers — stock management (Phase 8.5)
-# ---------------------------------------------------------------------------
-
 def update_stock(db_path: str | Path, atc_code: str, new_stock: float) -> None:
-    """
-    Update the current stock level for one ATC code in atc_inventory.
-
-    Args:
-        db_path  : Path to the SQLite database.
-        atc_code : ATC-4 code to update.
-        new_stock: New stock level (must be >= 0).
-
-    Raises:
-        ValueError: If new_stock is negative.
-    """
     if new_stock < 0:
         raise ValueError(f"Stock cannot be negative: {new_stock}")
     db_path = Path(db_path)
@@ -445,14 +346,6 @@ def update_stock(db_path: str | Path, atc_code: str, new_stock: float) -> None:
 
 
 def load_batches(db_path: str | Path) -> list[dict]:
-    """
-    Load all inventory batches from the inventory_batches table.
-
-    Returns:
-        List of dicts with keys: batch_id, atc_code, batch_number, quantity,
-        unit_cost, expiry_date (ISO string), received_date, notes,
-        applied_discount (float|None), returned (int 0/1).
-    """
     db_path = Path(db_path)
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
@@ -475,21 +368,7 @@ def add_batch(
     expiry_date: str,
     notes: str = "",
 ) -> None:
-    """
-    Insert a new received batch and recompute aggregate stock for that ATC code.
-
-    Args:
-        db_path     : Path to the SQLite database.
-        atc_code    : ATC-4 code the batch belongs to.
-        batch_number: Unique lot identifier (e.g. LOT-2026-099).
-        quantity    : Number of units received (must be > 0).
-        unit_cost   : Cost per unit in SAR (must be >= 0).
-        expiry_date : Expiry date string in YYYY-MM-DD format.
-        notes       : Optional free-text notes.
-
-    Raises:
-        ValueError: quantity <= 0, unit_cost < 0, invalid date, duplicate batch_number.
-    """
+    """Insert a batch and bump atc_inventory."""
     if quantity <= 0:
         raise ValueError(f"Quantity must be positive: {quantity}")
     if unit_cost < 0:
@@ -548,20 +427,7 @@ def add_batch(
 
 
 def recall_batch(db_path: str | Path, batch_number: str, reason: str) -> float:
-    """
-    Withdraw a faulty batch: zero its quantity, mark returned=1, recompute stock.
-
-    Args:
-        db_path     : Path to the SQLite database.
-        batch_number: Lot identifier to recall.
-        reason      : Human-readable recall reason appended to batch notes.
-
-    Returns:
-        Number of units that were recalled (0.0 if already recalled).
-
-    Raises:
-        ValueError: batch_number not found.
-    """
+    """Zero the batch, set returned=1, decrement atc_inventory. Returns units recalled."""
     db_path = Path(db_path)
     old_stock = 0.0
     new_stock = 0.0
@@ -634,13 +500,8 @@ def _append_batch_audit(
         writer.writerow([ts, atc_code, action, batch_number, old_stock, new_stock, delta])
 
 
-# ---------------------------------------------------------------------------
-# Public helpers — alert management (Phase 9 Item 6)
-# ---------------------------------------------------------------------------
-
-
 def _ensure_alerts_table(conn: sqlite3.Connection) -> None:
-    """Create the alerts table if it does not yet exist (migration guard)."""
+    """Migration guard for old DBs without the alerts table."""
     conn.execute("""
         CREATE TABLE IF NOT EXISTS alerts (
             alert_id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -663,20 +524,6 @@ def create_alert(
     severity: str,
     message: str,
 ) -> int:
-    """
-    Insert a new alert row and return the new alert_id.
-
-    Args:
-        db_path     : Path to the SQLite database.
-        alert_type  : 'LOW_STOCK', 'EXPIRY', or 'RECALL'.
-        atc_code    : ATC-4 code (None for alerts not tied to a single code).
-        batch_number: Batch identifier (None for LOW_STOCK alerts).
-        severity    : 'CRITICAL', 'WARNING', or 'INFO'.
-        message     : Human-readable alert text.
-
-    Returns:
-        The integer alert_id of the newly created row.
-    """
     db_path = Path(db_path)
     with sqlite3.connect(db_path) as conn:
         _ensure_alerts_table(conn)
@@ -695,12 +542,7 @@ def alert_key_exists(
     atc_code: str | None,
     batch_number: str | None,
 ) -> bool:
-    """
-    Return True if an open (unacknowledged) alert with the same
-    (alert_type, atc_code, batch_number) already exists.
-
-    Used to keep the alerts table free of duplicates for the same event.
-    """
+    """True if there's an open alert with the same key. Used to dedupe."""
     db_path = Path(db_path)
     with sqlite3.connect(db_path) as conn:
         _ensure_alerts_table(conn)
@@ -717,12 +559,6 @@ def alert_key_exists(
 
 
 def get_open_alerts(db_path: str | Path) -> list[dict]:
-    """
-    Return all unacknowledged alerts sorted by created_at descending.
-
-    Each dict contains: alert_id, alert_type, atc_code, batch_number,
-    severity, message, created_at, acknowledged_at.
-    """
     db_path = Path(db_path)
     with sqlite3.connect(db_path) as conn:
         _ensure_alerts_table(conn)
@@ -738,9 +574,6 @@ def get_open_alerts(db_path: str | Path) -> list[dict]:
 
 
 def get_all_alerts(db_path: str | Path) -> list[dict]:
-    """
-    Return all alerts (open and acknowledged) sorted by created_at descending.
-    """
     db_path = Path(db_path)
     with sqlite3.connect(db_path) as conn:
         _ensure_alerts_table(conn)
@@ -755,13 +588,6 @@ def get_all_alerts(db_path: str | Path) -> list[dict]:
 
 
 def acknowledge_alert(db_path: str | Path, alert_id: int) -> None:
-    """
-    Mark an alert as acknowledged by setting acknowledged_at to the current UTC time.
-
-    Args:
-        db_path  : Path to the SQLite database.
-        alert_id : The alert_id to acknowledge.
-    """
     db_path = Path(db_path)
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with sqlite3.connect(db_path) as conn:
@@ -773,13 +599,8 @@ def acknowledge_alert(db_path: str | Path, alert_id: int) -> None:
         conn.commit()
 
 
-# ---------------------------------------------------------------------------
-# Public helpers — supplier and purchase order management (Phase 9 Item 9)
-# ---------------------------------------------------------------------------
-
-
 def _ensure_purchase_orders_table(conn: sqlite3.Connection) -> None:
-    """Create purchase_orders table if it does not yet exist (migration guard)."""
+    """Migration guard."""
     conn.execute("""
         CREATE TABLE IF NOT EXISTS purchase_orders (
             po_id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -794,11 +615,6 @@ def _ensure_purchase_orders_table(conn: sqlite3.Connection) -> None:
 
 
 def load_suppliers(db_path: str | Path) -> list[dict]:
-    """
-    Return all suppliers ordered by name.
-
-    Each dict: supplier_id, name, email, phone, lead_time_days, notes.
-    """
     db_path = Path(db_path)
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
@@ -817,26 +633,7 @@ def add_supplier(
     lead_time_days: int = 7,
     notes: str = "",
 ) -> int:
-    """
-    Insert a new supplier into the suppliers directory.
-
-    The new supplier_id is auto-assigned by SQLite (rowid).
-
-    Args:
-        db_path       : Path to the SQLite database.
-        name          : Display name (required, must be unique).
-        email         : Contact email (optional).
-        phone         : Contact phone (optional).
-        lead_time_days: Days from order to delivery (default 7).
-        notes         : Free-text notes (optional).
-
-    Returns:
-        The integer supplier_id of the newly created row.
-
-    Raises:
-        ValueError: name is empty, lead_time_days is negative, or the supplier
-                    name already exists.
-    """
+    """Returns new supplier_id."""
     if not name or not name.strip():
         raise ValueError("Supplier name cannot be empty.")
     if lead_time_days < 0:
@@ -864,20 +661,7 @@ def assign_supplier_to_atc(
     atc_code: str,
     supplier_id: int,
 ) -> None:
-    """
-    Set atc_categories.supplier_id for one ATC code.
-
-    Used by the Manage Catalog page so the pharmacist can re-route an ATC
-    code to a different supplier without editing the database directly.
-
-    Args:
-        db_path    : Path to the SQLite database.
-        atc_code   : ATC-4 code (must already exist in atc_categories).
-        supplier_id: Target supplier_id (must already exist in suppliers).
-
-    Raises:
-        ValueError: atc_code or supplier_id is not present.
-    """
+    """Re-route an ATC to a different supplier."""
     db_path = Path(db_path)
     atc_code = atc_code.strip().upper()
     with sqlite3.connect(db_path) as conn:
@@ -905,19 +689,6 @@ def save_purchase_order(
     lines_json: str,
     total_cost: float,
 ) -> int:
-    """
-    Insert a new purchase order into purchase_orders and return the new po_id.
-
-    Args:
-        db_path      : Path to the SQLite database.
-        supplier_id  : FK to suppliers table (None for unassigned suppliers).
-        supplier_name: Display name stored on the PO for historical accuracy.
-        lines_json   : JSON-encoded list of line-item dicts.
-        total_cost   : Grand total in SAR.
-
-    Returns:
-        The integer po_id of the newly created row.
-    """
     db_path = Path(db_path)
     with sqlite3.connect(db_path) as conn:
         _ensure_purchase_orders_table(conn)
@@ -932,11 +703,6 @@ def save_purchase_order(
 
 
 def load_purchase_orders(db_path: str | Path) -> list[dict]:
-    """
-    Return all purchase orders (newest first).
-
-    Each dict: po_id, supplier_id, supplier_name, created_at, status, total_cost, lines_json.
-    """
     db_path = Path(db_path)
     with sqlite3.connect(db_path) as conn:
         _ensure_purchase_orders_table(conn)
@@ -953,18 +719,7 @@ def save_batch_overrides(
     db_path: str | Path,
     overrides: list[dict],
 ) -> None:
-    """
-    Persist pharmacist overrides for one or more batches.
-
-    Each dict in *overrides* must have:
-        batch_id         (int)
-        applied_discount (float|None)
-        returned         (bool/int)  — if True, quantity is zeroed out
-
-    Args:
-        db_path  : Path to the SQLite database.
-        overrides: List of override dicts (one per edited batch).
-    """
+    """Each dict: {batch_id, applied_discount, returned}. Returned=True zeroes qty."""
     db_path = Path(db_path)
     with sqlite3.connect(db_path) as conn:
         for ov in overrides:

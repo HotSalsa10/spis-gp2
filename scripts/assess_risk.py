@@ -1,21 +1,3 @@
-"""
-scripts/assess_risk.py
------------------------
-Phase 4 CLI: run risk classification and order-quantity recommendations.
-
-Loads the trained XGBoost model + encoder (Phase 3 artifacts), reads the
-feature-engineered CSV (Phase 2 output), and current stock levels from the
-SQLite database (atc_inventory table), then prints a risk tier report and
-writes results to data/processed/risk_assessment.csv.
-
-Usage:
-    python scripts/assess_risk.py
-    python scripts/assess_risk.py --db data/inventory.db
-                                  --features data/processed/features_daily.csv
-                                  --models models
-                                  --output data/processed/risk_assessment.csv
-                                  --safety-days 3
-"""
 
 import argparse
 import sys

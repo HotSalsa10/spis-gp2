@@ -1,19 +1,4 @@
-"""
-spis/models/inventory_kpi.py
-------------------------------
-Inventory turnover ratio KPI.
-
-Turnover = units sold in period / average on-hand inventory.
-Average inventory is approximated by the current stock level in
-atc_inventory (the only stock snapshot this system maintains).
-
-Classification thresholds:
-    Slow      < 4    -- excess stock; capital tied up
-    Low       4-6    -- below optimal; review order frequency
-    Healthy   6-12   -- normal pharmacy range
-    High      12-24  -- fast mover; watch for stockouts
-    Excessive > 24   -- extremely fast; increase safety stock
-"""
+"""Inventory turnover = units_sold / current_stock."""
 
 import sqlite3
 from pathlib import Path
@@ -22,23 +7,7 @@ from pathlib import Path
 def compute_turnover(
     db_path: str | Path, period_days: int = 365
 ) -> dict[str, dict]:
-    """
-    Compute inventory turnover ratio for every ATC code in atc_inventory.
-
-    Formula:  turnover = units_sold_in_period / avg_inventory
-    avg_inventory is the current_stock value from atc_inventory.
-
-    Args:
-        db_path    : Path to the SQLite database.
-        period_days: Look-back window in days (default 365).
-
-    Returns:
-        Dict keyed by atc_code. Each value is a dict with:
-            units_sold     (float) -- total units sold in the window
-            avg_inventory  (float) -- current stock used as proxy
-            turnover       (float) -- ratio; 0.0 when inventory is zero
-            classification (str)  -- Slow | Low | Healthy | High | Excessive
-    """
+    """Per-ATC turnover ratio + Slow/Low/Healthy/High/Excessive label."""
     db_path = Path(db_path)
     cutoff = f"-{period_days} days"
 
@@ -81,7 +50,6 @@ def compute_turnover(
 
 
 def _classify(turnover: float) -> str:
-    """Return the turnover classification label for a given ratio."""
     if turnover < 4:
         return "Slow"
     if turnover < 6:

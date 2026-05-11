@@ -1,13 +1,4 @@
-"""
-spis/api/routes.py
-------------------
-Flask Blueprint with all SPIS REST API endpoints (Phase 5).
-
-Endpoints:
-    GET /health                     -- Liveness check
-    GET /api/v1/risk                -- Full risk assessment for all ATC codes
-    GET /api/v1/forecast/<atc_code> -- 30-day demand forecast for one ATC code
-"""
+"""Three endpoints: /health, /api/v1/risk, /api/v1/forecast/<atc>."""
 
 import dataclasses
 from datetime import datetime, timezone
@@ -28,19 +19,11 @@ bp = Blueprint("api", __name__)
 
 
 def register_routes(app) -> None:
-    """Attach the API blueprint to the Flask application."""
     app.register_blueprint(bp)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _ra_to_dict(ra) -> dict:
-    """
-    Convert a RiskAssessment dataclass to a JSON-serialisable dict.
-    Replaces float('inf') days_of_stock with None (JSON cannot encode infinity).
-    """
+    """JSON can't encode inf, so swap to None."""
     d = dataclasses.asdict(ra)
     if d.get("days_of_stock") == float("inf"):
         d["days_of_stock"] = None
@@ -48,37 +31,20 @@ def _ra_to_dict(ra) -> dict:
 
 
 def _model_loaded() -> bool:
-    """Return True if model artifacts were successfully loaded at startup."""
     return (
         current_app.config.get("_MODEL") is not None
         and current_app.config.get("_ENCODER") is not None
     )
 
 
-# ---------------------------------------------------------------------------
-# GET /health
-# ---------------------------------------------------------------------------
-
 @bp.get("/health")
 def health():
-    """Liveness check -- always HTTP 200 if the server is running."""
     return jsonify({"status": "ok", "version": VERSION})
 
 
-# ---------------------------------------------------------------------------
-# GET /api/v1/risk
-# ---------------------------------------------------------------------------
-
 @bp.get("/api/v1/risk")
 def risk_assessment():
-    """
-    Run a full risk assessment for every ATC code in the inventory.
-
-    Returns a JSON object with:
-        assessed_at  : ISO-8601 UTC timestamp
-        safety_days  : safety buffer used in order-qty calculation
-        results      : list of per-ATC-code risk records
-    """
+    """Full risk assessment for every ATC code."""
     if not _model_loaded():
         return jsonify({
             "error": "Model artifacts not loaded. Run scripts/train_model.py first."
@@ -97,7 +63,7 @@ def risk_assessment():
         model=model,
         encoder=encoder,
         safety_days=safety_days,
-        output_csv=None,        # No CSV written via the API
+        output_csv=None,
     )
 
     return jsonify({
@@ -107,23 +73,9 @@ def risk_assessment():
     })
 
 
-# ---------------------------------------------------------------------------
-# GET /api/v1/forecast/<atc_code>
-# ---------------------------------------------------------------------------
-
 @bp.get("/api/v1/forecast/<atc_code>")
 def forecast(atc_code: str):
-    """
-    Return a 30-day demand forecast for a single ATC code.
-
-    Path parameter:
-        atc_code : ATC-4 code (e.g. M01AB).
-
-    Returns:
-        200 -- JSON with atc_code, forecast_30d, daily_demand, forecast_start.
-        404 -- Unknown ATC code.
-        503 -- Model artifacts not loaded.
-    """
+    """30-day forecast for one ATC code. 404 if unknown, 503 if no model."""
     if not _model_loaded():
         return jsonify({
             "error": "Model artifacts not loaded. Run scripts/train_model.py first."

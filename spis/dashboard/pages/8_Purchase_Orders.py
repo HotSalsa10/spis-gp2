@@ -1,12 +1,3 @@
-"""
-spis/dashboard/pages/8_Purchase_Orders.py
-------------------------------------------
-Page 8 -- Purchase Orders.
-
-Generates suggested purchase orders from the current risk assessment,
-grouped by supplier.  Each PO can be downloaded as a PDF or marked as
-sent (stored to purchase_orders history table).
-"""
 
 import json
 
@@ -23,9 +14,6 @@ from spis.dashboard._shared import (
 from spis.data.database import load_purchase_orders, save_purchase_order
 from spis.models.po_generator import build_all_pos, generate_po_pdf
 
-# ---------------------------------------------------------------------------
-# Page config
-# ---------------------------------------------------------------------------
 
 st.set_page_config(page_title="Purchase Orders -- SPIS", layout="wide")
 inject_css()
@@ -38,9 +26,6 @@ st.caption(
 
 check_required_files()
 
-# ---------------------------------------------------------------------------
-# Load risk assessment
-# ---------------------------------------------------------------------------
 
 with st.spinner("Running risk assessment ..."):
     model, encoder, inventory = load_artifacts()
@@ -48,9 +33,6 @@ with st.spinner("Running risk assessment ..."):
 
 pos = build_all_pos(str(DB_PATH), assessments)
 
-# ---------------------------------------------------------------------------
-# Summary strip
-# ---------------------------------------------------------------------------
 
 total_suppliers = len(pos)
 total_lines     = sum(len(p["lines"]) for p in pos)
@@ -63,9 +45,6 @@ m3.metric("Estimated Total (SAR)",    f"{total_value:,.2f}")
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Per-supplier PO expanders
-# ---------------------------------------------------------------------------
 
 if not pos:
     st.info(
@@ -156,9 +135,6 @@ else:
                     )
                     st.success(f"PO for {s_name} recorded as sent.")
 
-# ---------------------------------------------------------------------------
-# PO History
-# ---------------------------------------------------------------------------
 
 st.divider()
 st.subheader("Order History")

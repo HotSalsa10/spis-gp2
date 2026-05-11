@@ -1,16 +1,3 @@
-"""
-tests/test_risk_classifier.py
-------------------------------
-Pytest suite for spis.models.risk_classifier (Phase 4).
-Uses synthetic fixtures -- no database or CSV files required for unit tests.
-
-Coverage:
-    classify_risk          -- boundary values for all 4 tiers
-    calculate_order_qty    -- normal, overstock, safety buffer, zero demand
-    build_risk_assessment  -- immutability, field correctness, zero demand
-    forecast_30_days       -- returns float >= 0, deterministic, unknown ATC raises
-    load_atc_inventory     -- reads from SQLite, returns dict
-"""
 
 import sqlite3
 from pathlib import Path
@@ -34,10 +21,6 @@ from spis.models.risk_classifier import (
 )
 from spis.models.forecaster import FEATURE_COLS
 
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 ATC_CODES = ["M01AB", "M01AE", "N02BA", "N02BE", "N05B", "N05C", "R03", "R06"]
 
@@ -107,10 +90,6 @@ def tiny_inventory_db(tmp_path: Path) -> Path:
     return db_path
 
 
-# ---------------------------------------------------------------------------
-# Tests -- classify_risk
-# ---------------------------------------------------------------------------
-
 def test_classify_risk_critical():
     """Days of stock below TIER_CRITICAL threshold -> CRITICAL."""
     assert classify_risk(0.0) == "CRITICAL"
@@ -141,10 +120,6 @@ def test_classify_risk_uses_constants():
     assert TIER_LOW == 14.0
     assert TIER_OK == 90.0
 
-
-# ---------------------------------------------------------------------------
-# Tests -- calculate_order_qty
-# ---------------------------------------------------------------------------
 
 def test_calculate_order_qty_basic():
     """Order qty = forecast + buffer - current_stock when positive."""
@@ -183,10 +158,6 @@ def test_calculate_order_qty_zero_daily_demand():
     )
     assert result == 100.0  # no buffer, just replenish to forecast
 
-
-# ---------------------------------------------------------------------------
-# Tests -- build_risk_assessment
-# ---------------------------------------------------------------------------
 
 def test_build_risk_assessment_returns_dataclass():
     """build_risk_assessment must return a RiskAssessment instance."""
@@ -237,10 +208,6 @@ def test_build_risk_assessment_zero_demand():
     assert ra.order_qty == 0.0
 
 
-# ---------------------------------------------------------------------------
-# Tests -- forecast_30_days
-# ---------------------------------------------------------------------------
-
 def test_forecast_30_days_returns_float(tiny_model, tiny_encoder, seed_row):
     """forecast_30_days must return a non-negative float."""
     start = pd.Timestamp("2020-01-01")
@@ -264,10 +231,6 @@ def test_forecast_30_days_unknown_atc_raises(tiny_model, tiny_encoder, seed_row)
             tiny_model, tiny_encoder, seed_row, "UNKNOWN", pd.Timestamp("2020-01-01")
         )
 
-
-# ---------------------------------------------------------------------------
-# Tests -- load_atc_inventory
-# ---------------------------------------------------------------------------
 
 def test_load_atc_inventory_returns_dict(tiny_inventory_db):
     """load_atc_inventory should return a dict mapping atc_code -> stock float."""

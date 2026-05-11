@@ -1,10 +1,3 @@
-"""
-tests/test_database.py
-----------------------
-Unit tests for spis.data.database — schema creation and seed data.
-
-All tests use a temporary SQLite file so they never touch data/inventory.db.
-"""
 
 import sqlite3
 
@@ -26,19 +19,11 @@ from spis.data.database import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 @pytest.fixture
 def tmp_db(tmp_path):
     """Path to a temporary SQLite database that is deleted after each test."""
     return tmp_path / "test_inventory.db"
 
-
-# ---------------------------------------------------------------------------
-# Tests: schema
-# ---------------------------------------------------------------------------
 
 def test_init_db_creates_all_tables(tmp_db):
     """All four expected tables must exist after init_db."""
@@ -65,10 +50,6 @@ def test_init_db_is_idempotent(tmp_db):
 
     assert count == len(ATC_CATEGORIES)
 
-
-# ---------------------------------------------------------------------------
-# Tests: seed data
-# ---------------------------------------------------------------------------
 
 def test_init_db_seeds_atc_categories(tmp_db):
     """atc_categories should have exactly 8 rows after seeding."""
@@ -112,11 +93,6 @@ def test_init_db_sales_starts_empty(tmp_db):
         count = conn.execute("SELECT COUNT(*) FROM sales").fetchone()[0]
 
     assert count == 0
-
-
-# ---------------------------------------------------------------------------
-# Tests: Phase 8.5 — inventory_batches table and update_stock
-# ---------------------------------------------------------------------------
 
 
 def test_init_db_creates_inventory_batches_table(tmp_db):
@@ -164,11 +140,6 @@ def test_update_stock_raises_on_negative(tmp_db):
 
     with pytest.raises(ValueError):
         update_stock(tmp_db, "M01AB", -1.0)
-
-
-# ---------------------------------------------------------------------------
-# Tests: Phase 9 Item 4 -- add_batch
-# ---------------------------------------------------------------------------
 
 
 def test_add_batch_happy_path(tmp_db):
@@ -255,11 +226,6 @@ def test_add_batch_past_expiry_warns(tmp_db):
         add_batch(tmp_db, "M01AB", "LOT-PAST-001", 10.0, 0.50, "2020-01-01")
 
 
-# ---------------------------------------------------------------------------
-# Tests: Phase 9 Item 5 -- recall_batch
-# ---------------------------------------------------------------------------
-
-
 def test_recall_batch_happy_path(tmp_db):
     """recall_batch zeros quantity, sets returned=1, and reduces aggregate stock."""
     init_db(tmp_db)
@@ -307,11 +273,6 @@ def test_recall_batch_idempotent(tmp_db):
     units_second = recall_batch(tmp_db, "LOT-IDEM-001", "duplicate recall check")
 
     assert units_second == pytest.approx(0.0)
-
-
-# ---------------------------------------------------------------------------
-# Tests: Phase 9 Item 9 -- suppliers seed and management
-# ---------------------------------------------------------------------------
 
 
 def test_init_db_seeds_suppliers(tmp_db):

@@ -29,17 +29,11 @@ from pathlib import Path
 import kagglehub
 import pandas as pd
 
-# ---------------------------------------------------------------------------
-# Make the project root importable so we can use spis.*
-# ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from spis.data.database import init_db  # noqa: E402
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
 DATASET_SLUG  = "milanzdravkovic/pharma-sales-data"
 RAW_DIR       = PROJECT_ROOT / "data" / "raw"
 DB_PATH       = PROJECT_ROOT / "data" / "inventory.db"
@@ -56,9 +50,6 @@ GRANULARITY_MAP = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Step 1 — Download
-# ---------------------------------------------------------------------------
 def download_dataset() -> Path:
     """
     Download the Kaggle dataset to the local cache and return the directory path.
@@ -80,9 +71,6 @@ def download_dataset() -> Path:
     return cache_path
 
 
-# ---------------------------------------------------------------------------
-# Step 2 — Copy raw CSVs
-# ---------------------------------------------------------------------------
 def copy_to_raw(source_dir: Path) -> None:
     """
     Copy all CSVs from the Kaggle cache into data/raw/.
@@ -96,9 +84,6 @@ def copy_to_raw(source_dir: Path) -> None:
         print(f"[ingest] Copied -> {dest.relative_to(PROJECT_ROOT)}")
 
 
-# ---------------------------------------------------------------------------
-# Step 3 — Parse helpers
-# ---------------------------------------------------------------------------
 def _resolve_date_column(df: pd.DataFrame, granularity: str) -> pd.Series:
     """
     Return a Series of ISO-8601 date strings (YYYY-MM-DD) for every row.
@@ -150,9 +135,6 @@ def _resolve_hour_column(df: pd.DataFrame, granularity: str) -> pd.Series:
     return pd.Series([0] * len(df), dtype="Int64")
 
 
-# ---------------------------------------------------------------------------
-# Step 4 — Load one CSV into the sales table
-# ---------------------------------------------------------------------------
 def load_csv_to_db(csv_path: Path, granularity: str, conn: sqlite3.Connection) -> int:
     """
     Read one CSV, melt from wide to long format, and bulk-insert into sales.
@@ -209,9 +191,6 @@ def load_csv_to_db(csv_path: Path, granularity: str, conn: sqlite3.Connection) -
     return len(records)
 
 
-# ---------------------------------------------------------------------------
-# Main pipeline
-# ---------------------------------------------------------------------------
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser()

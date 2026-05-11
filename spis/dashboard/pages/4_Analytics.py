@@ -1,12 +1,3 @@
-"""
-spis/dashboard/pages/4_Analytics.py
---------------------------------------
-Page 4 — Analytics: feature importance + ABC demand analysis.
-
-Panels:
-  1. XGBoost feature importance (horizontal bar chart)
-  2. ABC / Pareto analysis of ATC codes by 30-day forecasted demand
-"""
 
 import json
 
@@ -35,9 +26,6 @@ from spis.dashboard._shared import (
     run_assessment,
 )
 
-# ---------------------------------------------------------------------------
-# Page config
-# ---------------------------------------------------------------------------
 
 st.set_page_config(page_title="Analytics — SPIS", layout="wide")
 inject_css()
@@ -49,9 +37,6 @@ st.caption(
 
 check_required_files()
 
-# ---------------------------------------------------------------------------
-# Panel 1 — Feature importance
-# ---------------------------------------------------------------------------
 
 st.subheader("Model Accuracy")
 
@@ -133,9 +118,6 @@ else:
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Panel 2 — ABC / Pareto demand analysis
-# ---------------------------------------------------------------------------
 
 st.subheader("Fast / Medium / Slow Movers (ABC Pareto)")
 st.caption(
@@ -207,9 +189,6 @@ st.dataframe(
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Panel 3 — Seasonal decomposition
-# ---------------------------------------------------------------------------
 
 st.subheader("Seasonal Decomposition")
 st.caption(
@@ -278,9 +257,6 @@ else:
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Panel 4 — Year-over-Year demand growth
-# ---------------------------------------------------------------------------
 
 st.subheader("Year-over-Year Demand Growth (%)")
 st.caption(
@@ -347,9 +323,6 @@ else:
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Panel 5 — 12-month rolling demand trend
-# ---------------------------------------------------------------------------
 
 st.subheader("12-Month Rolling Demand Trend")
 st.caption("90-day rolling average of daily sales per ATC code — shows whether demand is growing or shrinking")
@@ -406,9 +379,6 @@ else:
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Panel 6 — Inventory turnover KPI strip
-# ---------------------------------------------------------------------------
 
 st.subheader("Inventory Turnover Ratio")
 st.caption(

@@ -1,8 +1,3 @@
-"""
-tests/test_po_generator.py
----------------------------
-Unit tests for spis.models.po_generator.
-"""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,10 +7,6 @@ import pytest
 from spis.data.database import init_db
 from spis.models.po_generator import build_all_pos, generate_po_pdf
 
-
-# ---------------------------------------------------------------------------
-# Minimal stub that mimics RiskAssessment
-# ---------------------------------------------------------------------------
 
 @dataclass
 class _RA:
@@ -28,20 +19,12 @@ class _RA:
     days_of_stock: float = 0.5
 
 
-# ---------------------------------------------------------------------------
-# Fixture: small seeded DB
-# ---------------------------------------------------------------------------
-
 @pytest.fixture
 def db(tmp_path) -> Path:
     path = tmp_path / "test.db"
     init_db(str(path))
     return path
 
-
-# ---------------------------------------------------------------------------
-# build_all_pos tests
-# ---------------------------------------------------------------------------
 
 def test_empty_assessments_returns_empty(db):
     pos = build_all_pos(str(db), [])
@@ -130,10 +113,6 @@ def test_default_unit_cost_applied_when_no_batch(db):
     # unit_cost is either from batch or fallback; total = qty * unit_cost
     assert abs(line["total_cost"] - line["qty"] * line["unit_cost"]) < 0.01
 
-
-# ---------------------------------------------------------------------------
-# generate_po_pdf tests
-# ---------------------------------------------------------------------------
 
 def test_pdf_returns_bytes(db):
     assessments = [_RA("M01AB", "CRITICAL", order_qty=100)]
