@@ -14,6 +14,11 @@ from pathlib import Path
 
 from spis.dashboard._shared import DB_PATH, inject_css
 from spis.data.catalog import add_atc_code, add_drug, list_atc_codes
+from spis.data.database import (
+    add_supplier,
+    assign_supplier_to_atc,
+    load_suppliers,
+)
 
 st.set_page_config(page_title="Manage Catalog", layout="wide")
 inject_css()
@@ -149,5 +154,115 @@ if submitted_atc:
                 st.info(
                     f"'{new_code.strip().upper()}' is already registered. No changes made."
                 )
+        except ValueError as exc:
+            st.error(str(exc))
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Section D -- Suppliers (Phase 9)
+# ---------------------------------------------------------------------------
+
+st.subheader("Suppliers")
+st.caption(
+    "Distributors and manufacturers that fulfil purchase orders. "
+    "Each ATC code is routed to one primary supplier (see Section E)."
+)
+
+
+@st.cache_data(ttl=30)
+def _load_suppliers_cached(db: str) -> pd.DataFrame:
+    rows = load_suppliers(db)
+    if not rows:
+        return pd.DataFrame(
+            columns=["supplier_id", "name", "email", "phone", "lead_time_days", "notes"]
+        )
+    return pd.DataFrame(rows)
+
+
+suppliers_df = _load_suppliers_cached(str(DB_PATH))
+if suppliers_df.empty:
+    st.info("No suppliers registered yet -- add one below.")
+else:
+    st.dataframe(
+        suppliers_df.rename(columns={
+            "supplier_id":    "ID",
+            "name":           "Supplier",
+            "email":          "Email",
+            "phone":          "Phone",
+            "lead_time_days": "Lead Time (days)",
+            "notes":          "Notes",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+st.markdown("**Add Supplier**")
+
+with st.form("add_supplier_form", clear_on_submit=True):
+    sup_name  = st.text_input("Supplier Name",   placeholder="e.g. Tamer Group")
+    sup_email = st.text_input("Contact Email",   placeholder="e.g. info@tamergroup.com")
+    sup_phone = st.text_input("Contact Phone",   placeholder="e.g. +966 12 000 0001")
+    sup_lead  = st.number_input(
+        "Lead Time (days)", min_value=0, max_value=60, value=7, step=1,
+    )
+    sup_notes = st.text_input("Notes (optional)", placeholder="Speciality or any free text")
+    submitted_sup = st.form_submit_button("Add Supplier")
+
+if submitted_sup:
+    if not sup_name.strip():
+        st.error("Supplier name cannot be empty.")
+    else:
+        try:
+            new_id = add_supplier(
+                DB_PATH,
+                name=sup_name.strip(),
+                email=sup_email.strip(),
+                phone=sup_phone.strip(),
+                lead_time_days=int(sup_lead),
+                notes=sup_notes.strip(),
+            )
+            _load_suppliers_cached.clear()
+            st.success(f"Supplier '{sup_name.strip()}' added (ID {new_id}).")
+            st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Section E -- Assign ATC -> Supplier
+# ---------------------------------------------------------------------------
+
+st.subheader("Assign ATC Code to Supplier")
+st.caption(
+    "Choose which supplier should receive purchase orders for each ATC code. "
+    "Changes take effect on the next render of the Purchase Orders page."
+)
+
+suppliers_for_assign = load_suppliers(str(DB_PATH))
+atc_for_assign = atc_df["atc_code"].tolist() if not atc_df.empty else []
+
+if not suppliers_for_assign or not atc_for_assign:
+    st.info("Register at least one supplier and one ATC code before assigning.")
+else:
+    with st.form("assign_supplier_form", clear_on_submit=False):
+        sel_atc = st.selectbox("ATC Code", options=atc_for_assign, key="assign_atc")
+        sup_options = {s["supplier_id"]: s["name"] for s in suppliers_for_assign}
+        sel_sup_id = st.selectbox(
+            "Supplier",
+            options=list(sup_options.keys()),
+            format_func=lambda sid: f"{sup_options[sid]} (ID {sid})",
+            key="assign_sup",
+        )
+        submitted_assign = st.form_submit_button("Assign")
+
+    if submitted_assign:
+        try:
+            assign_supplier_to_atc(DB_PATH, sel_atc, sel_sup_id)
+            _load_atc.clear()
+            st.success(
+                f"{sel_atc} is now routed to '{sup_options[sel_sup_id]}'."
+            )
         except ValueError as exc:
             st.error(str(exc))

@@ -15,8 +15,12 @@ from spis.data.database import (
     ATC_INVENTORY_SEED,
     BATCH_SEED,
     DRUGS_CATALOG,
+    SUPPLIERS_SEED,
     add_batch,
+    add_supplier,
+    assign_supplier_to_atc,
     init_db,
+    load_suppliers,
     recall_batch,
     update_stock,
 )
@@ -303,3 +307,95 @@ def test_recall_batch_idempotent(tmp_db):
     units_second = recall_batch(tmp_db, "LOT-IDEM-001", "duplicate recall check")
 
     assert units_second == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# Tests: Phase 9 Item 9 -- suppliers seed and management
+# ---------------------------------------------------------------------------
+
+
+def test_init_db_seeds_suppliers(tmp_db):
+    """suppliers table should have exactly len(SUPPLIERS_SEED) rows after seeding."""
+    init_db(tmp_db)
+    with sqlite3.connect(tmp_db) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0]
+    assert count == len(SUPPLIERS_SEED)
+
+
+def test_init_db_links_atc_to_seeded_suppliers(tmp_db):
+    """Every seeded ATC code must end up linked to a non-null supplier_id."""
+    init_db(tmp_db)
+    with sqlite3.connect(tmp_db) as conn:
+        rows = conn.execute(
+            "SELECT atc_code, supplier_id FROM atc_categories"
+        ).fetchall()
+    assert len(rows) == len(ATC_CATEGORIES)
+    for atc, sid in rows:
+        assert sid is not None, f"{atc} has no supplier_id"
+
+
+def test_add_supplier_happy_path(tmp_db):
+    """add_supplier inserts a row and returns its new supplier_id."""
+    init_db(tmp_db)
+    new_id = add_supplier(
+        tmp_db,
+        name="Test Distributor",
+        email="info@test.example",
+        phone="+966 12 000 9999",
+        lead_time_days=4,
+        notes="unit-test supplier",
+    )
+    assert isinstance(new_id, int)
+    assert new_id > len(SUPPLIERS_SEED)  # auto-assigned past the seed range
+
+    rows = load_suppliers(tmp_db)
+    names = {r["name"] for r in rows}
+    assert "Test Distributor" in names
+
+
+def test_add_supplier_rejects_empty_name(tmp_db):
+    """add_supplier must raise ValueError for empty / whitespace name."""
+    init_db(tmp_db)
+    with pytest.raises(ValueError, match="empty"):
+        add_supplier(tmp_db, name="   ")
+
+
+def test_add_supplier_rejects_duplicate_name(tmp_db):
+    """add_supplier must raise ValueError when the name is already taken."""
+    init_db(tmp_db)
+    with pytest.raises(ValueError, match="already exists"):
+        add_supplier(tmp_db, name="Tamer Group")  # seeded
+
+
+def test_add_supplier_rejects_negative_lead_time(tmp_db):
+    """add_supplier must raise ValueError for negative lead_time_days."""
+    init_db(tmp_db)
+    with pytest.raises(ValueError, match="Lead time"):
+        add_supplier(tmp_db, name="Bad Supplier", lead_time_days=-1)
+
+
+def test_assign_supplier_to_atc_happy_path(tmp_db):
+    """assign_supplier_to_atc must update atc_categories.supplier_id."""
+    init_db(tmp_db)
+    new_id = add_supplier(tmp_db, name="Reassignment Target")
+    assign_supplier_to_atc(tmp_db, "M01AB", new_id)
+
+    with sqlite3.connect(tmp_db) as conn:
+        sid = conn.execute(
+            "SELECT supplier_id FROM atc_categories WHERE atc_code='M01AB'"
+        ).fetchone()[0]
+    assert sid == new_id
+
+
+def test_assign_supplier_to_atc_rejects_unknown_atc(tmp_db):
+    """assign_supplier_to_atc must raise ValueError for an unknown ATC code."""
+    init_db(tmp_db)
+    with pytest.raises(ValueError, match="Unknown ATC"):
+        assign_supplier_to_atc(tmp_db, "ZZ99X", supplier_id=1)
+
+
+def test_assign_supplier_to_atc_rejects_unknown_supplier(tmp_db):
+    """assign_supplier_to_atc must raise ValueError for an unknown supplier_id."""
+    init_db(tmp_db)
+    with pytest.raises(ValueError, match="Unknown supplier_id"):
+        assign_supplier_to_atc(tmp_db, "M01AB", supplier_id=999)

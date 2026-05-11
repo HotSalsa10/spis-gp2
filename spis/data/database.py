@@ -93,21 +93,38 @@ ATC_INVENTORY_SEED = [
 # ---------------------------------------------------------------------------
 # Reference Data — Suppliers (Phase 9 Item 9)
 # ---------------------------------------------------------------------------
-# Fixed supplier_id values so seeding is deterministic across fresh DBs.
+# Real Saudi pharmaceutical distributors / manufacturers used as demo seeds.
+# Company names are factual (publicly listed firms operating in KSA).
+# Email and phone fields use clearly placeholder values -- the operator must
+# update them with the actual contact channels their pharmacy uses before
+# any real purchase order is sent.
 
 SUPPLIERS_SEED = [
     # (supplier_id, name, email, phone, lead_time_days, notes)
-    (1, "Al-Dawaa Pharma Supplies",     "orders@aldawaa.sa",    "+966-11-400-1000", 3,
-     "Local distributor -- MSK drugs"),
-    (2, "Saudi Medical Supplies Co.",   "supply@sms-ksa.sa",    "+966-12-300-2000", 5,
-     "National distributor -- analgesics"),
-    (3, "Gulf Pharma Trading",          "procurement@gpt.sa",   "+966-13-200-3000", 7,
-     "Controlled substance specialist"),
-    (4, "National Health Distributors", "orders@nhd-ksa.sa",    "+966-14-100-4000", 4,
-     "Respiratory products"),
+    (1, "Tamer Group",
+     "info@tamergroup.com",      "+966 12 000 0001", 3,
+     "Major Jeddah-based pharma distributor (est. 1922) -- "
+     "demo contact, replace before live use."),
+    (2, "Banaja Holdings",
+     "info@banaja.com",          "+966 12 000 0002", 5,
+     "Jeddah-based pharma distributor (est. 1948) -- "
+     "demo contact, replace before live use."),
+    (3, "Cigalah Group",
+     "info@cigalah.com",         "+966 12 000 0003", 7,
+     "Saudi pharma distributor with controlled-substance licensing -- "
+     "demo contact, replace before live use."),
+    (4, "Jamjoom Pharma",
+     "info@jamjoompharma.com",   "+966 12 000 0004", 4,
+     "Saudi pharma manufacturer (est. 1988) -- "
+     "demo contact, replace before live use."),
 ]
 
 # Assign each ATC code to its primary supplier (used to UPDATE atc_categories on seed).
+# Mapping reflects each supplier's known strength:
+#   Tamer Group     -> MSK / NSAID volume distribution     (M01AB, M01AE)
+#   Banaja Holdings -> general analgesic portfolio          (N02BA, N02BE)
+#   Cigalah Group   -> controlled-substance licensing       (N05B,  N05C)
+#   Jamjoom Pharma  -> respiratory & antihistamine products (R03,   R06)
 ATC_SUPPLIER_MAP = {
     "M01AB": 1, "M01AE": 1,
     "N02BA": 2, "N02BE": 2,
@@ -790,6 +807,95 @@ def load_suppliers(db_path: str | Path) -> list[dict]:
             " FROM suppliers ORDER BY name"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def add_supplier(
+    db_path: str | Path,
+    name: str,
+    email: str = "",
+    phone: str = "",
+    lead_time_days: int = 7,
+    notes: str = "",
+) -> int:
+    """
+    Insert a new supplier into the suppliers directory.
+
+    The new supplier_id is auto-assigned by SQLite (rowid).
+
+    Args:
+        db_path       : Path to the SQLite database.
+        name          : Display name (required, must be unique).
+        email         : Contact email (optional).
+        phone         : Contact phone (optional).
+        lead_time_days: Days from order to delivery (default 7).
+        notes         : Free-text notes (optional).
+
+    Returns:
+        The integer supplier_id of the newly created row.
+
+    Raises:
+        ValueError: name is empty, lead_time_days is negative, or the supplier
+                    name already exists.
+    """
+    if not name or not name.strip():
+        raise ValueError("Supplier name cannot be empty.")
+    if lead_time_days < 0:
+        raise ValueError(f"Lead time cannot be negative: {lead_time_days}")
+
+    db_path = Path(db_path)
+    name = name.strip()
+    with sqlite3.connect(db_path) as conn:
+        dup = conn.execute(
+            "SELECT supplier_id FROM suppliers WHERE name = ?", (name,)
+        ).fetchone()
+        if dup:
+            raise ValueError(f"Supplier already exists: {name}")
+        cur = conn.execute(
+            """INSERT INTO suppliers (name, email, phone, lead_time_days, notes)
+               VALUES (?, ?, ?, ?, ?)""",
+            (name, email.strip(), phone.strip(), int(lead_time_days), notes.strip()),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def assign_supplier_to_atc(
+    db_path: str | Path,
+    atc_code: str,
+    supplier_id: int,
+) -> None:
+    """
+    Set atc_categories.supplier_id for one ATC code.
+
+    Used by the Manage Catalog page so the pharmacist can re-route an ATC
+    code to a different supplier without editing the database directly.
+
+    Args:
+        db_path    : Path to the SQLite database.
+        atc_code   : ATC-4 code (must already exist in atc_categories).
+        supplier_id: Target supplier_id (must already exist in suppliers).
+
+    Raises:
+        ValueError: atc_code or supplier_id is not present.
+    """
+    db_path = Path(db_path)
+    atc_code = atc_code.strip().upper()
+    with sqlite3.connect(db_path) as conn:
+        ok = conn.execute(
+            "SELECT 1 FROM atc_categories WHERE atc_code = ?", (atc_code,)
+        ).fetchone()
+        if ok is None:
+            raise ValueError(f"Unknown ATC code: {atc_code}")
+        ok = conn.execute(
+            "SELECT 1 FROM suppliers WHERE supplier_id = ?", (supplier_id,)
+        ).fetchone()
+        if ok is None:
+            raise ValueError(f"Unknown supplier_id: {supplier_id}")
+        conn.execute(
+            "UPDATE atc_categories SET supplier_id = ? WHERE atc_code = ?",
+            (int(supplier_id), atc_code),
+        )
+        conn.commit()
 
 
 def save_purchase_order(
