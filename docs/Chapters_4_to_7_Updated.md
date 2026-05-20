@@ -796,6 +796,33 @@ For each atc_code group:
 Return DataFrame
 ```
 
+**Rationale for the 35-feature design.** The feature set was sized
+to give XGBoost a complete description of the demand signal across
+the temporal scales that matter for pharmacy operations, while
+staying small enough to fit on commodity hardware and remain
+interpretable on a single-page feature-importance chart. The 35
+features fall into four functional families:
+
+| Family | Count | Captures |
+|---|---|---|
+| **Calendar** | 12 | Weekly, monthly, seasonal, and holiday effects (day-of-week, day-of-month, month, year, week-of-year, weekend, holiday, season, payday-window, school-holiday, quarter, days-to-month-end). |
+| **Lag** | 7 | Direct memory at horizons that match procurement and biological cycles: `lag_{1,2,3}` (immediate trend), `lag_7` (weekly recurrence), `lag_{14,28}` (bi-weekly and monthly), `lag_365` (annual seasonality). |
+| **Rolling** | 12 | Smoothed local-window statistics that suppress one-day noise: rolling means at 7/14/28/90/365-day windows, rolling std at 7/28 days, rolling min/max at 7 days, and EMAs at 7/14/28 days. |
+| **Derived** | 4 | Interaction terms that XGBoost cannot otherwise reach in a single split: `lag_ratio_7` (today vs. weekly average), `trend_counter` (long-run drift), `rolling_range_7` (volatility), `ema_ratio` (short vs. long EMA — momentum). |
+
+Each family addresses a temporal scale (day, week, month, year)
+that pharmacy demand actually exhibits in the Kaggle source data.
+Empirically the top-five feature-importance scores are dominated
+by `ema_14`, `ema_7`, and `rolling_mean_14` (≈ 78% combined),
+confirming that the EMA/rolling family carries most of the signal
+while the lag and calendar families provide the conditioning that
+lets XGBoost separate weekday patterns from holiday effects.
+Smaller feature sets (e.g. Phase 3's 21-feature set) achieved
+MAE ≈ 2.80; expanding to 35 features drove MAE down to ≈ 1.06,
+after which further additions produced diminishing returns. The
+chosen count therefore represents the point where marginal feature
+value drops below the marginal cost of pipeline maintenance.
+
 ### 4.6.2 XGBoost training (forecaster.train_and_evaluate)
 
 ```
@@ -956,6 +983,75 @@ For each (atc_code, current_stock) in inventory:
 Return list
 ```
 
+**Mathematical formulation.** The risk-classification logic computes
+three quantities per ATC code from the 30-day forecast and the current
+stock. Using the notation `f30` = sum of the 30 daily predictions,
+`s` = current stock, and `d` = mean daily demand (= `f30 / 30`):
+
+1. **Days of Stock (DoS).** The forward coverage of current stock at
+   the predicted average daily consumption:
+
+   ```
+       DoS = s / d              if d > 0
+       DoS = ∞                  if d = 0   (no demand → stock never runs out)
+   ```
+
+2. **Risk tier.** A piecewise classification on DoS, with thresholds
+   `TIER_CRITICAL = 7`, `TIER_LOW = 14`, `TIER_OK = 90` (days). The
+   rationale for these boundaries is given in §4.7.2 — they map directly
+   to the longest seeded supplier lead time (CRITICAL), the typical
+   pharmacy review cycle (LOW), and a three-month working-capital and
+   expiry-risk ceiling (OK / OVERSTOCK):
+
+   ```
+       tier(DoS) = CRITICAL    if DoS  < 7
+                 = LOW         if 7  ≤ DoS < 14
+                 = OK          if 14 ≤ DoS < 90
+                 = OVERSTOCK   if      DoS ≥ 90
+   ```
+
+3. **Order quantity.** The number of units to procure to cover the
+   forecasted 30-day demand plus a safety buffer, less what is already
+   on the shelf, floored at zero:
+
+   ```
+       safety_buffer = d × safety_days        (default safety_days = 3)
+       order_qty     = max(0, f30 + safety_buffer − s)
+   ```
+
+   Equivalently:
+
+   ```
+       order_qty = max(0, f30 + d · safety_days − s).
+   ```
+
+**Why a safety buffer is needed.** The point forecast `f30` is the
+*expected* demand over the next 30 days, not the *worst case*. Real
+demand exhibits volatility: weekday spikes, holiday surges, and
+prescription-pattern shifts can push actual demand above the
+expectation for several consecutive days. Ordering exactly `f30 − s`
+units would leave the pharmacy with a 50% probability of a stockout
+before the next replenishment cycle (whenever realised demand exceeds
+the forecast). The buffer `d × safety_days` is a deliberate over-order
+that absorbs forecast error and supplier-lead-time variance,
+converting an expected-value sizing rule into a service-level rule.
+
+The default `safety_days = 3` was chosen to span the maximum seeded
+supplier lead time (3–7 days) without doubling the order quantity. A
+more rigorous treatment — quantile-regression forecasts that expose
+P90 directly — is identified as future work (§7.5 item 2); the
+constant-multiplier form is the simplest formulation that still
+guarantees the buffer scales with demand rather than being a fixed
+unit count.
+
+**Why the `max(0, …)` clamp.** When current stock already exceeds the
+forecasted demand plus the safety buffer (`s ≥ f30 + d · safety_days`),
+the formula would emit a negative order quantity. Clamping at zero
+encodes the operational fact that the system never recommends a
+*return*; the OVERSTOCK tier surfaces the over-supply condition
+separately, and the recommendation becomes "do not place an order this
+cycle" rather than a negative procurement signal.
+
 ### 4.6.5 Two-factor expiry advisor (expiry_advisor.classify_discount)
 
 ```
@@ -1095,6 +1191,19 @@ all eight ATC codes encoded into one shared model via
 `GridSearchCV` over a 7-dimensional grid with
 `TimeSeriesSplit(n_splits=5)`.
 
+**Rationale.** XGBoost was selected because it performs well on
+structured tabular time-series data, accepts arbitrary engineered
+features (calendar, lag, rolling, EMA) as direct inputs, and trains
+a single multi-drug model in seconds on commodity hardware. It
+provides lower computational complexity than deep learning models
+(LSTM/RNN) while delivering feature-importance scores that support
+the interpretability required of a clinical decision-support tool.
+Its empirical performance on the held-out test set (MAE ≈ 1.06)
+beats the moving-average baseline (MAE ≈ 2.89) by roughly 3×, which
+exceeded the FR-3.2 acceptance criterion. The "lightweight, no-cloud,
+single-host" non-functional requirements (Ch3 NFR-1, NFR-5) ruled out
+heavier deep-learning stacks.
+
 **Considered and rejected.**
 
 - **ARIMA / SARIMA** — strong on regular univariate seasonal series,
@@ -1122,6 +1231,32 @@ single-model-multi-drug architecture was the deciding factor.
 **Chosen.** `TIER_CRITICAL = 7`, `TIER_LOW = 14`, `TIER_OK = 90`
 (days of stock).
 
+**Rationale.** The thresholds were chosen to match real
+pharmacy-operations timescales:
+
+- **CRITICAL (< 7 days)** — the seeded supplier lead times
+  (`suppliers.lead_time_days`) span 3–7 days. A drug below one
+  week of stock cannot be guaranteed to be replenished before a
+  stockout if any supplier is at the slow end of that range, so
+  this band marks an immediate action item.
+- **LOW (7–14 days)** — provides a two-week early-warning window
+  that absorbs lead-time variability and gives the pharmacist
+  one full review cycle to schedule a routine purchase order
+  without alarm.
+- **OK (14–90 days)** — the normal operating band. Three months
+  is sufficiently long that no procurement action is needed and
+  capital is not yet excessively tied up.
+- **OVERSTOCK (≥ 90 days)** — beyond three months the inventory
+  begins to materially compete with shelf space, working
+  capital, and expiry risk; the tier triggers a recommendation
+  to slow future orders rather than place new ones.
+
+The boundaries are domain-driven (lead time, calendar cycles,
+shelf-life economics) rather than arbitrary; they are stored as
+named constants in `risk_classifier.py` (`TIER_CRITICAL`,
+`TIER_LOW`, `TIER_OK`) so they can be re-tuned per pharmacy
+without touching the classification logic.
+
 **Considered and rejected.**
 
 - **Initial Phase 4 sketch: `(3, 7, 30)`** — the prototype used
@@ -1141,7 +1276,33 @@ single-model-multi-drug architecture was the deciding factor.
 rolling, and EMA features from that buffer. EMAs are updated
 in-place using `α = 2/(span+1)`.
 
-**Considered and rejected.**
+**Why a 30-day horizon?** The horizon length was set to 30 days
+to align with three concurrent operational cycles:
+
+1. **Procurement cycle.** Pharmacy procurement is typically run
+   on a monthly basis (purchase-order review, supplier invoicing,
+   and budget reporting are calendar-month aligned), so a 30-day
+   forecast slots directly into the natural ordering rhythm.
+2. **Supplier lead times.** Seeded supplier lead times span 3–7
+   days; a 30-day forecast leaves ≈ 4× headroom over the longest
+   lead time, so an order placed today on the basis of the
+   forecast is guaranteed to land well inside the predicted demand
+   window.
+3. **Forecast reliability.** XGBoost is a one-step regressor that
+   we extend recursively. Test-set error grows with horizon as
+   each predicted value is fed back into the lag buffer; 30 days
+   sits at the knee of the error curve — long enough to be
+   actionable, short enough that compounded recursion error stays
+   within the FR-3 MAE target.
+
+Shorter horizons (7 or 14 days) were rejected because they fail to
+cover the OVERSTOCK threshold (≥ 90 DoS) decision and require the
+pharmacist to re-run the assessment too frequently. Longer horizons
+(60 or 90 days) were rejected because recursion error compounds and
+the additional resolution adds no procurement value beyond the
+monthly cycle.
+
+**Considered and rejected (loop implementation).**
 
 - **Hold lag/rolling/EMA features constant from the seed row.**
   Simpler — every day of the 30-day window receives the same
@@ -2078,6 +2239,240 @@ register_atc.py  →  ingest_data.py  →  run_pipeline.py  →  train_model.py
 
 ---
 
+## 5.8 Deployment
+
+This section describes how the system is deployed on a single host.
+SPIS is intentionally single-host: the dashboard, the model artifacts,
+and the SQLite database all live on the same machine, which keeps
+infrastructure cost at zero and removes any network dependency for the
+forecasting and risk-classification path.
+
+### 5.8.1 Hardware requirements
+
+| Component | Minimum | Recommended |
+|---|---|---|
+| CPU | Dual-core x86_64 @ 2.0 GHz | Quad-core x86_64 @ 2.5 GHz or Apple Silicon |
+| RAM | 4 GB | 8 GB |
+| Disk | 1 GB free (for repo, virtual environment, model artifacts, SQLite DB) | 5 GB free |
+| GPU | Not required | Not required (XGBoost trains on CPU; LSTM was rejected partly to avoid GPU dependency) |
+| OS | Windows 10 / 11, macOS 12+, or Linux (Ubuntu 20.04+) | Same |
+| Python | 3.11.x (3.14 incompatible with `scispacy`) | 3.11.9 |
+| Network | None required at runtime | LAN access if the dashboard is exposed via `run_public.py` |
+
+### 5.8.2 Installation
+
+The full installation procedure is:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/HotSalsa10/spis-gp2.git
+cd spis-gp2
+
+# 2. Create and activate a Python 3.11 virtual environment
+py -3.11 -m venv venv               # Windows
+# python3.11 -m venv venv           # macOS / Linux
+
+# Activate
+.\venv\Scripts\activate             # Windows PowerShell
+# source venv/bin/activate          # macOS / Linux
+
+# 3. Install dependencies (single requirements file)
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 4. Build the database, run the pipeline, and train the model
+python scripts/ingest_kaggle.py
+python scripts/run_pipeline.py
+python scripts/train_model.py
+
+# 5. Launch the dashboard
+streamlit run spis/dashboard/app.py
+#  - or -
+python scripts/run_dashboard.py --port 8501
+```
+
+The dashboard then opens on `http://localhost:8501`. To expose it on the
+local network (for the committee demo), `python scripts/run_public.py`
+binds the same Streamlit app to `0.0.0.0`.
+
+### 5.8.3 Python packages
+
+All runtime dependencies are declared in a single `requirements.txt`
+with minimum-version pins (per NFR-5.3). Resolved versions on the
+reference development machine are:
+
+| Package | Version | Purpose |
+|---|---|---|
+| `pandas` | ≥ 2.3 | Data manipulation; long-format ingestion |
+| `numpy` | ≥ 1.26, < 2 | Numerical primitives (pinned below 2.0 for `scispacy` compatibility) |
+| `scikit-learn` | ≥ 1.8 | `LabelEncoder`, `TimeSeriesSplit`, `GridSearchCV`, metrics |
+| `xgboost` | ≥ 3.2 | Demand forecaster (`XGBRegressor`) |
+| `joblib` | ≥ 1.5 | Model artifact serialisation |
+| `flask` | ≥ 3.1 | REST API (read-only) |
+| `streamlit` | ≥ 1.54 | Multi-page dashboard |
+| `plotly` | ≥ 5.0 | History/forecast/feature-importance charts |
+| `fpdf2` | ≥ 2.7 | Committee one-pager and supplier-grouped PO PDFs |
+| `holidays` | ≥ 0.50 | Saudi Arabia / Turkey calendar feature engineering |
+| `spacy`, `scispacy` | (declared, unused) | Reserved for the future drug-name NLP search |
+| `pytest` | ≥ 9.0 | Test runner (182 tests) |
+
+### 5.8.4 Startup commands (summary)
+
+| Component | Command |
+|---|---|
+| Dashboard | `streamlit run spis/dashboard/app.py` |
+| Dashboard (LAN) | `python scripts/run_public.py` |
+| REST API | `python scripts/run_api.py --port 5000` |
+| Pipeline rebuild | `python scripts/run_pipeline.py` |
+| Re-train model | `python scripts/train_model.py` |
+| One-shot risk CSV | `python scripts/assess_risk.py` |
+| Run full test suite | `pytest -q` |
+
+### 5.8.5 Runtime artifact layout
+
+```
+spis-gp2/
+├── data/
+│   ├── raw/                   # Kaggle source CSVs
+│   ├── processed/             # features_daily.csv, train.csv, test.csv
+│   └── inventory.db           # SQLite — git-ignored, rebuilt by ingest
+├── models/                    # xgboost_forecaster.joblib, label_encoder.joblib,
+│                              # metrics.json, feature_importance.json
+├── spis/                      # Python package (api, dashboard, data, models)
+├── scripts/                   # CLI launchers
+└── tests/                     # pytest suite (182 tests across 14 files)
+```
+
+The dashboard's missing-artifact guard (`_shared.check_required_files`)
+inspects `models/` at startup. If any required file is absent, the UI
+displays an explicit error listing the missing files and the command
+required to regenerate them, rather than silently failing.
+
+---
+
+## 5.9 Security
+
+Security was treated as an explicit design topic even though the GP2
+scope does not require a production-grade hardening pass. The
+single-host deployment model and the read-only public surface keep the
+attack surface small, and the items below describe both what the
+implementation does today and what a production-grade deployment
+would add. These mirror the security checklist in standard university
+secure-coding guidelines [Ch3, NFR-2; references_master.md, entry 22].
+
+### 5.9.1 Threat model (in scope vs. out of scope)
+
+| Asset | Threat | Current control | Production control (future work) |
+|---|---|---|---|
+| `inventory.db` | Tampering with stock or sales | Filesystem-only access on the host; SQLite WAL not exposed over network | Encrypted disk; row-level audit log; signed snapshots |
+| Model artifacts (`.joblib`) | Replacement with a malicious pickle | Artifacts are local-only and regenerable from raw data | Code-signed artifacts; SHA-256 checksum manifest |
+| Flask REST API | Unauthorised reads | API is read-only and bound to `localhost` by default | Bearer-token auth on every endpoint; HTTPS via reverse proxy |
+| Dashboard writes | Unauthorised stock edits | Single-host trust boundary — only LAN users with the URL can write | Streamlit's `experimental_user` + RBAC (see 5.9.4) |
+| User credentials | Credential theft | Not stored — no auth layer in GP2 scope | Argon2id-hashed password store (see 5.9.2) |
+
+### 5.9.2 Password hashing (planned)
+
+A production deployment would store passwords using **Argon2id** via
+the `argon2-cffi` library — the OWASP-recommended modern hash with
+memory-hard parameters. The reasons Argon2id was chosen over MD5,
+SHA-256, and bcrypt are:
+
+- MD5 and unsalted SHA-256 are vulnerable to GPU-accelerated rainbow
+  table attacks and are explicitly deprecated by NIST SP 800-63B.
+- bcrypt remains acceptable but is CPU-only and has a 72-byte input
+  limit; Argon2id is the explicit winner of the Password Hashing
+  Competition (2015) and is memory-hard.
+
+Pseudocode:
+
+```python
+from argon2 import PasswordHasher
+
+ph = PasswordHasher(time_cost=3, memory_cost=64 * 1024, parallelism=4)
+hash_str = ph.hash(plain_password)        # store this
+ph.verify(hash_str, candidate_password)   # raises VerifyMismatchError on bad password
+```
+
+The schema would add a `users(id, username, password_hash, role,
+created_at)` table; `password_hash` would store the full Argon2id
+output (algorithm identifier + salt + parameters + digest in a single
+string).
+
+### 5.9.3 Session management (planned)
+
+For Streamlit, session management is currently implicit (the dashboard
+trusts whoever can reach the port). A production version would use
+**signed, time-limited session tokens**:
+
+- On login, the server issues a JSON Web Token (JWT) signed with a
+  server-side secret, with `exp` set to 30 minutes and a refresh
+  token valid for 8 hours.
+- The token is stored in an HTTP-only, `SameSite=Strict` cookie to
+  prevent XSS theft and CSRF replay.
+- All dashboard pages would call a `require_session()` helper at the
+  top of the page; tokens are revoked on logout (via a server-side
+  blocklist of refresh-token JTIs).
+
+### 5.9.4 Role-based access control (planned)
+
+Three roles are sufficient to cover the use cases identified in Ch3:
+
+| Role | Read | Write (stock / batch / alert ack) | Manage catalog | Export PO PDFs |
+|---|---|---|---|---|
+| `viewer` (clinical pharmacist) | ✓ | — | — | — |
+| `operator` (storekeeper) | ✓ | ✓ | — | ✓ |
+| `manager` (pharmacy manager) | ✓ | ✓ | ✓ | ✓ |
+
+A `require_role(role)` decorator on every Streamlit page and Flask
+route would enforce this. The role would be stamped into the JWT at
+login time so that a downgraded user cannot re-elevate without
+re-authenticating.
+
+### 5.9.5 Secure API routes (planned)
+
+The Flask REST API currently exposes three read-only endpoints
+(`/health`, `/api/v1/risk`, `/api/v1/forecast/<atc_code>`). A
+production deployment would harden the API as follows:
+
+- **TLS**: terminate HTTPS at a reverse proxy (nginx or Caddy) and
+  redirect all plain HTTP to HTTPS.
+- **Authentication**: require a Bearer token on every non-`/health`
+  endpoint; validate against the JWT issued by the dashboard login.
+- **Rate limiting**: apply per-token rate limits (e.g. 60 req/min) via
+  `flask-limiter` to blunt scraping and accidental denial-of-service.
+- **Input validation**: ATC codes are already validated against
+  `encoder.classes_` (returning HTTP 404 for unknown codes); future
+  write endpoints (`POST /api/v1/stock`, `POST /api/v1/batches`) would
+  add JSON-schema validation via `marshmallow` or `pydantic` to reject
+  malformed payloads before they touch the database.
+- **CORS**: restrict `Access-Control-Allow-Origin` to the dashboard
+  origin only.
+- **Error responses**: never leak stack traces; the existing 503/404
+  responses are already structured JSON with no implementation detail.
+
+### 5.9.6 Defensive practices already in place
+
+The following controls are already implemented in GP2 and would carry
+forward to a production deployment without change:
+
+- **Parameterised SQL**: every `INSERT` / `UPDATE` / `SELECT` in
+  `spis/data/database.py` uses `?` placeholders, so the codebase is
+  free of string-concatenated queries (no SQL-injection surface).
+- **Read-only public API**: the Flask app exposes no write endpoints,
+  removing every server-side mutation as an attack vector.
+- **Fail-fast on missing artifacts**: the dashboard and the API both
+  return a deliberate error rather than a silent fallback when model
+  artifacts are absent, preventing serving stale or empty predictions.
+- **Local-only SQLite**: the database file is not network-mountable
+  and is excluded from the Git history (`.gitignore`) to prevent
+  accidental publication of pharmacy data.
+- **Pinned dependencies**: `requirements.txt` uses minimum-version
+  pins so the build is reproducible; supply-chain integrity would be
+  hardened in production by adding hash-pinning (`pip install
+  --require-hashes`).
+
+---
+
 # Chapter 6: Testing
 
 ## 6.1 Testing Strategy
@@ -2406,25 +2801,68 @@ Non-functional requirements:
 
 ## 7.4 Limitations
 
-1. **Single-source training data.** The forecaster is trained on one Turkish
-   pharmacy's history. Seasonality and calendar effects are validated for
-   that context only; the live forecast loop deliberately swaps in Saudi
-   public holidays to align with the pilot pharmacy, but cross-pharmacy
-   validation is required before any commercial deployment.
-2. **Single-warehouse stock model.** `atc_inventory` is a single snapshot.
-   Multi-branch pharmacy chains would need per-location keys and a
-   transfer-aware risk classifier.
-3. **No live POS feed.** Sales are imported by CSV. Until a POS integration
-   exists, the lag / rolling features cannot refresh in real time and the
-   forecast horizon is bounded by the staleness of the last CSV.
-4. **Read-only API.** The Flask surface is intentionally read-only. Stock
+The limitations below are stated explicitly to scope the conclusions of
+this report and to motivate the priorities in §7.5.
+
+1. **Use of a public dataset.** Training and evaluation used a public
+   Kaggle pharmaceutical sales dataset (424,080 transactions, 2014–2019,
+   8 ATC categories) rather than data from an operational pharmacy
+   partner. Public datasets capture aggregate sales behaviour but lack
+   the prescription-level metadata, supplier records, and stock-movement
+   logs that a live deployment would generate. Reported model accuracy
+   therefore generalises to the dataset's characteristics, not to a
+   specific pharmacy.
+
+2. **Absence of real pharmacy integration.** The system has no live
+   connection to a Point-of-Sale (POS) terminal, an Electronic Health
+   Record (EHR), a supplier ordering portal, or a barcode/stock scanner.
+   Sales are imported via CSV (`scripts/ingest_data.py`); stock updates
+   are entered manually through the dashboard; the Flask REST API is
+   intentionally read-only and does not push purchase orders or write
+   back to any external system. SPIS therefore operates as a
+   decision-support tool, not as an integrated procurement loop.
+
+3. **Single-pharmacy limitation.** The forecaster was trained on one
+   pharmacy's history. Seasonality and calendar effects are validated
+   for that context only; the live forecast loop swaps in Saudi public
+   holidays to align with the pilot site, but cross-pharmacy
+   validation is required before commercial deployment. Risk-tier
+   thresholds (`7 / 14 / 90` days) were calibrated against the seeded
+   supplier lead times of this dataset and would need site-specific
+   re-tuning.
+
+4. **Lack of real-time forecasting.** Forecasts are produced in a batch
+   off-line workflow: the user re-runs the pipeline
+   (`run_pipeline.py` → `train_model.py`) to incorporate new sales.
+   Lag, rolling, and EMA features depend on historical CSV data; without
+   a continuous POS feed they become stale and forecast accuracy
+   degrades. A real-time system would require streaming ingestion,
+   incremental feature updates, and either online retraining or a
+   scheduled re-training job.
+
+5. **Limited expiry prediction.** The expiry advisor
+   (`spis/models/expiry_advisor.py`) classifies discounts and write-off
+   recommendations from `days_to_expiry` and `risk_ratio` but does **not**
+   forecast which specific batches will expire before they are sold. It
+   reasons from the current state of `inventory_batches` rather than
+   from a probabilistic model of batch consumption. Drug-level (rather
+   than ATC-category-level) sell-through forecasting would be required
+   to predict the actual likelihood of write-off for a given batch.
+
+6. **Single-warehouse stock model.** `atc_inventory` is a single
+   snapshot. Multi-branch pharmacy chains would need per-location keys
+   and a transfer-aware risk classifier.
+
+7. **Read-only API.** The Flask surface is read-only by design. Stock
    edits, batch receipts, and recalls go through the dashboard's direct
    write path, not the API. A production deployment would need an
-   authenticated `POST/PATCH` surface.
-5. **NLP drug-name search was scoped, not delivered.** `spacy` and
+   authenticated `POST/PATCH` surface (see §7.5 future work item 6 and
+   Chapter 5 §5.8 on security).
+
+8. **NLP drug-name search was scoped, not delivered.** `spacy` and
    `scispacy` remain in `requirements.txt` because the Phase 9 plan
-   included a drug-name NLP search, but it was deprioritised in favour of
-   the operational features (alerts, POs, catalog management, batch
+   included a drug-name NLP search, but it was deprioritised in favour
+   of the operational features (alerts, POs, catalog management, batch
    receive / recall). The codebase currently has no NLP path.
 
 ## 7.5 Future Work

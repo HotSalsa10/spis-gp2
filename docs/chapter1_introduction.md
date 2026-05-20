@@ -4,11 +4,17 @@
 
 ## 1.1 Background
 
-Pharmacies are a critical link in the healthcare supply chain. Maintaining adequate stock of medications directly affects patient safety — a stockout of a pain reliever or anxiolytic can have immediate clinical consequences, while overstocking ties up capital and risks drug expiry. For independent and small-chain pharmacies, inventory management is typically performed manually: a pharmacist or storekeeper inspects shelves, estimates demand from experience, and places orders based on intuition. This process is error-prone, time-consuming, and cannot adapt quickly to seasonal demand shifts, holiday periods, or unusual consumption patterns.
+Pharmacies are a critical link in the healthcare supply chain. Maintaining adequate stock of medications directly affects patient safety — a stockout of a pain reliever or anxiolytic can have immediate clinical consequences, while overstocking ties up capital and risks drug expiry.
 
-Modern enterprise pharmacy systems — such as those offered by large hospital networks — include demand forecasting and inventory optimisation as built-in features. However, these platforms are prohibitively expensive for single-site or small-chain pharmacies. There is a clear gap in accessible, lightweight tools that apply machine learning techniques to pharmacy-scale inventory data without requiring cloud infrastructure, specialised hardware, or large IT teams.
+For independent and small-chain pharmacies, inventory management is typically performed manually: a pharmacist or storekeeper inspects shelves, estimates demand from experience, and places orders based on intuition. This process is error-prone, time-consuming, and cannot adapt quickly to seasonal demand shifts, holiday periods, or unusual consumption patterns.
 
-Machine learning, and gradient-boosted tree models in particular, have demonstrated strong performance on time-series demand forecasting tasks across retail and healthcare domains [1][2]. When combined with a systematic feature engineering pipeline, such models can capture complex temporal patterns — weekly seasonality, holiday effects, payday cycles — that simple statistical baselines miss. The output of such a model, framed as a risk classification and order recommendation, gives pharmacy staff actionable daily guidance rather than raw numbers.
+Modern enterprise pharmacy systems — such as those offered by large hospital networks — include demand forecasting and inventory optimisation as built-in features. However, these platforms are prohibitively expensive for single-site or small-chain pharmacies.
+
+There is a clear gap in accessible, lightweight tools that apply machine learning techniques to pharmacy-scale inventory data without requiring cloud infrastructure, specialised hardware, or large IT teams.
+
+Machine learning, and gradient-boosted tree models in particular, have demonstrated strong performance on time-series demand forecasting tasks across retail and healthcare domains [1][2]. When combined with a systematic feature engineering pipeline, such models can capture complex temporal patterns — weekly seasonality, holiday effects, payday cycles — that simple statistical baselines miss.
+
+The output of such a model, framed as a risk classification and order recommendation, gives pharmacy staff actionable daily guidance rather than raw numbers.
 
 ---
 

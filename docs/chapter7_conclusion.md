@@ -51,25 +51,43 @@ All FRs from Chapter 3 were tested and verified:
 
 ## 7.4 Limitations
 
-1. **Single-Pharmacy Training Dataset**
-   - Model trained exclusively on a single Turkish pharmacy's sales (2014–2019)
-   - Demand patterns may not generalise to other pharmacies (different customer base, prescribing practices, seasonality)
-   - Cross-hospital validation recommended before deployment to new sites
+The following limitations are explicitly acknowledged to support an honest assessment of the system's scope and to frame the future-work agenda in §7.5.
 
-2. **Lag/Rolling Features Cannot Refresh In Real-Time**
-   - Features like lag_7, rolling_mean_28, ema_14 require historical sales data
-   - Without a continuous sales feed (e.g., POS system integration), forecasts decay in accuracy beyond ~30 days
-   - Currently assumes latest features remain constant during forecast loop (conservative but unrealistic)
+1. **Use of a Public Dataset.**
+   - Training and evaluation were performed on a public Kaggle pharmaceutical sales dataset (424,080 transactions, 2014–2019, 8 ATC categories) rather than on data from an operational pharmacy partner.
+   - Public datasets capture aggregate behaviour but lack the prescription-level metadata, supplier records, and stock-movement logs that real pharmacy operations generate.
+   - Conclusions about model accuracy and tier behaviour therefore generalise to the dataset's characteristics, not to a specific live deployment.
 
-3. **Read-Only Dashboard**
-   - Streamlit dashboard displays risk tiers and recommendations but cannot modify stock levels manually
-   - Pharmacist must use external system (Excel, POS) to log new shipments or adjustments
-   - No audit trail of manual corrections
+2. **Absence of Real Pharmacy Integration.**
+   - The system has no live connection to a Point-of-Sale (POS) system, an Electronic Health Record (EHR), a supplier ordering portal, or a barcode/stock-scanning device.
+   - All sales data is ingested through a CSV pipeline (`scripts/ingest_data.py`) and all stock updates are entered manually through the dashboard.
+   - The Flask REST API exposes read-only endpoints; it does not push purchase orders, post invoices, or write back to any external system.
+   - This limits the system to a decision-support role rather than an integrated procurement loop.
 
-4. **Fixed Safety Stock Parameter**
-   - Safety buffer = daily_demand × 3 (hardcoded safety_days=3)
-   - Does not account for demand variability (variance, demand distribution)
-   - Stochastic demand modelling (e.g., quantile regression) would be more robust
+3. **Single-Pharmacy Limitation.**
+   - The forecaster was trained on a single pharmacy's historical sales; demand patterns may not generalise to pharmacies with a different customer base, prescribing behaviour, regional seasonality, or product mix.
+   - The risk-tier thresholds (`7 / 14 / 90` days) were calibrated against the seeded supplier lead times in this dataset; other pharmacies would need to re-tune them for their own supply-chain conditions.
+   - Cross-site validation and per-site re-training are recommended before deployment to a new pharmacy.
+
+4. **Lack of Real-Time Forecasting.**
+   - The forecast is a batch, off-line process: the user must re-run the pipeline (`run_pipeline.py` → `train_model.py`) to incorporate new sales.
+   - Lag, rolling, and EMA features depend on historical sales; without a continuous POS feed the features become stale and forecast accuracy degrades.
+   - The 30-day forecast is recomputed on dashboard load from cached features, not from a live demand stream.
+   - A real-time system would require streaming ingestion, incremental feature updates, and either online retraining or scheduled re-training jobs (see §7.5 Future Work).
+
+5. **Limited Expiry Prediction.**
+   - The expiry advisor (`spis/models/expiry_advisor.py`) classifies discounts and write-off recommendations from `days_to_expiry` and `risk_ratio`, but it does **not** forecast which specific batches will expire before they are sold.
+   - The system reasons from the current state of `inventory_batches` rather than from a probabilistic model of batch consumption.
+   - Drug-level (rather than ATC-category-level) sell-through forecasting would be required to predict the actual likelihood of write-off for any given batch.
+   - Time-to-expiry uncertainty (e.g., a 90% confidence interval per batch) is therefore outside the current scope.
+
+6. **Fixed Safety Stock Parameter.**
+   - Safety buffer is computed as `daily_demand × 3` (default `safety_days = 3`) and does not adapt to demand variance.
+   - A probabilistic / quantile-regression approach would account for demand volatility more robustly (see §7.5 Future Work item 2).
+
+7. **Read-Only Audit Trail.**
+   - Manual stock corrections entered through the dashboard are persisted to `atc_inventory.current_stock` but no audit trail of the change history is recorded.
+   - For regulated deployments a write-ahead change log would be required.
 
 ---
 

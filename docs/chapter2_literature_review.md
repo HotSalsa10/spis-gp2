@@ -6,21 +6,29 @@
 
 ### 2.1.1 Pharmacy Inventory Management
 
-Inventory management in pharmacy settings requires balancing two competing risks: stockouts, which can delay or deny patient care, and overstocking, which wastes capital and risks drug expiry. The WHO Essential Medicines Programme defines reliable availability of key medications as a fundamental component of health system performance [1]. In practice, small and independent pharmacies typically manage stock through periodic manual counts and experience-based ordering — a process that is both labour-intensive and reactive.
+Inventory management in pharmacy settings requires balancing two competing risks: stockouts, which can delay or deny patient care, and overstocking, which wastes capital and risks drug expiry. The WHO Essential Medicines Programme defines reliable availability of key medications as a fundamental component of health system performance [1].
 
-Quantitative approaches to inventory management trace their roots to the Economic Order Quantity (EOQ) model proposed by Harris in 1913 and later refined by Wilson [2]. Classical models such as the reorder-point system assume stationary demand, which rarely holds in practice: pharmaceutical demand is influenced by seasonality (respiratory drugs in winter), payday cycles, public holidays, promotional events, and the prescribing patterns of nearby clinicians [3]. This non-stationarity motivates the use of forecasting models that can learn complex temporal patterns from historical data.
+In practice, small and independent pharmacies typically manage stock through periodic manual counts and experience-based ordering — a process that is both labour-intensive and reactive.
+
+Quantitative approaches to inventory management trace their roots to the Economic Order Quantity (EOQ) model proposed by Harris in 1913 and later refined by Wilson [2]. Classical models such as the reorder-point system assume stationary demand, which rarely holds in practice.
+
+Pharmaceutical demand is influenced by seasonality (respiratory drugs in winter), payday cycles, public holidays, promotional events, and the prescribing patterns of nearby clinicians [3]. This non-stationarity motivates the use of forecasting models that can learn complex temporal patterns from historical data.
 
 ### 2.1.2 Demand Forecasting Methods
 
 Demand forecasting methods can be broadly classified into three categories: classical statistical methods, machine learning models, and deep learning approaches.
 
-**Statistical Methods.** The Autoregressive Integrated Moving Average (ARIMA) family of models, introduced by Box and Jenkins [4], has been widely applied to pharmaceutical demand forecasting. ARIMA models decompose a time series into autoregressive and moving average components after differencing to achieve stationarity. Seasonal variants (SARIMA) extend this to capture yearly cycles. While interpretable and well-understood, ARIMA models are univariate — they cannot incorporate external predictors such as holiday calendars or payday indicators without extension to the ARIMAX form, and fitting a separate model per drug category is computationally expensive at scale.
+**Statistical Methods.** The Autoregressive Integrated Moving Average (ARIMA) family of models, introduced by Box and Jenkins [4], has been widely applied to pharmaceutical demand forecasting. ARIMA models decompose a time series into autoregressive and moving average components after differencing to achieve stationarity, and seasonal variants (SARIMA) extend this to capture yearly cycles.
+
+While interpretable and well-understood, ARIMA models are univariate — they cannot incorporate external predictors such as holiday calendars or payday indicators without extension to the ARIMAX form, and fitting a separate model per drug category is computationally expensive at scale.
 
 Holt-Winters exponential smoothing [5] provides a computationally simpler alternative, modelling level, trend, and seasonality as exponentially weighted averages. It performs well when seasonality is stable but struggles with abrupt demand changes and cannot incorporate covariate information.
 
 Facebook Prophet [6], released by Taylor and Letham in 2018, frames time-series forecasting as a curve-fitting problem using a piecewise linear or logistic growth trend, Fourier series for seasonality, and additive holiday effects. Prophet is designed for daily observations with strong seasonal patterns and handles missing data gracefully. However, like ARIMA, it fits one model per series, which makes multi-drug deployment costly.
 
-**Machine Learning Methods.** Gradient-boosted decision trees, and XGBoost in particular [7], have become the dominant approach in structured data competitions and industry forecasting pipelines. XGBoost builds an ensemble of regression trees in a boosted sequence, where each tree corrects the residual errors of its predecessors. It supports arbitrary feature sets — allowing the direct inclusion of calendar features, lag variables, and rolling statistics as model inputs — and trains a single multi-drug model when the drug identifier is included as a feature.
+**Machine Learning Methods.** Gradient-boosted decision trees, and XGBoost in particular [7], have become the dominant approach in structured data competitions and industry forecasting pipelines. XGBoost builds an ensemble of regression trees in a boosted sequence, where each tree corrects the residual errors of its predecessors.
+
+It supports arbitrary feature sets — allowing the direct inclusion of calendar features, lag variables, and rolling statistics as model inputs — and trains a single multi-drug model when the drug identifier is included as a feature.
 
 Random forests [8] offer similar flexibility with lower risk of overfitting but typically underperform XGBoost on tabular regression benchmarks, particularly when the training set is large and feature interactions are important [9].
 
@@ -40,13 +48,34 @@ Tanrisever et al. [13] addressed the inventory replenishment problem in a pharma
 
 ### 2.2.2 Risk Classification in Healthcare Supply Chains
 
-The concept of ABC-VED (Always-Better-Control / Vital-Essential-Desirable) classification is widely used in hospital pharmacy inventory management to prioritise stock monitoring effort [14]. ABC classification ranks items by consumption value; VED classification ranks them by clinical criticality. While useful, these frameworks are static — they do not account for dynamic stock levels or forward-looking demand forecasts. The Days-of-Stock (DoS) metric used in SPIS extends this idea into a dynamic, forecast-driven classification that updates daily.
+The concept of ABC-VED (Always-Better-Control / Vital-Essential-Desirable) classification is widely used in hospital pharmacy inventory management to prioritise stock monitoring effort [14]. ABC classification ranks items by consumption value; VED classification ranks them by clinical criticality.
+
+While useful, these frameworks are static — they do not account for dynamic stock levels or forward-looking demand forecasts. The Days-of-Stock (DoS) metric used in SPIS extends this idea into a dynamic, forecast-driven classification that updates daily.
 
 ### 2.2.3 Lightweight Inventory Systems for Small Pharmacies
 
-Significant prior work targets large hospital pharmacies or multi-site chains, relying on ERP integrations, cloud APIs, or dedicated database servers. Singh and Negi [15] surveyed pharmacy management software used in low-resource healthcare settings and identified a gap in affordable, offline-capable tools. Their survey found that most small pharmacies in developing regions either use spreadsheets or generic accounting software, lacking any demand forecasting capability.
+Significant prior work targets large hospital pharmacies or multi-site chains, relying on ERP integrations, cloud APIs, or dedicated database servers. Singh and Negi [15] surveyed pharmacy management software used in low-resource healthcare settings and identified a gap in affordable, offline-capable tools.
 
-### 2.2.4 Comparison Table
+Their survey found that most small pharmacies in developing regions either use spreadsheets or generic accounting software, lacking any demand forecasting capability.
+
+### 2.2.4 Critical Comparison of Related Work
+
+The studies reviewed above each address a subset of the problem SPIS targets, but none combines a rich-feature multi-drug forecaster with a dynamic risk-tier classifier in a lightweight deployment. The table below distils the methodological and operational limitations of each approach against SPIS.
+
+| Study | Method | Dataset | Limitation |
+|---|---|---|---|
+| Jiang et al. [12] | Gradient Boosted Trees | 3 years of hospital dispensing records | One model per drug; no risk-tier output; coupled to hospital ERP. |
+| Moons et al. [3] | ARIMA, exponential smoothing, neural networks | Belgian hospital pharmacy demand | No single method dominates; calendar-only features cannot capture lag-based recurrence; not lightweight. |
+| Tanrisever et al. [13] | Stochastic EOQ with safety stock | Pharmacy replenishment simulation | Replenishment-policy focus only; no demand-forecasting model; relies on assumed demand distribution. |
+| Box & Jenkins (ARIMA family) [4] | Autoregressive Integrated Moving Average | Generic time-series benchmarks | Univariate; cannot incorporate external regressors (holidays, payday windows) without ARIMAX; one model per series. |
+| Hochreiter & Schmidhuber (LSTM) [10] | Long Short-Term Memory networks | Sequence-learning benchmarks | High training-data and tuning cost; limited interpretability; GPU often required. |
+| Taylor & Letham (Prophet) [6] | Additive trend + Fourier seasonality + holidays | Daily web/business series | One model per series; limited covariate support; trend decomposition less expressive than engineered lag/rolling features. |
+| Singh & Negi [15] | Moving average + ABC-VED | Surveyed low-resource pharmacy software | No demand forecasting; static classification; mostly spreadsheet-based tools. |
+| **SPIS (this work)** | **XGBoost (single multi-drug model)** | **Kaggle pharmaceutical sales (424,080 rows, 8 ATC categories, 5.7 years)** | **Lightweight, dynamic 4-tier DoS classification, 35 engineered features, single-host deployment. Limitations: public dataset, no live pharmacy integration (see Ch 7).** |
+
+### 2.2.5 Feature-Level Comparison
+
+The table below compares the same systems by their feature-engineering and deployment characteristics.
 
 | System / Study | Forecasting Method | Features Used | Risk Classification | Lightweight Deployment | Drug-Level Detail |
 |---|---|---|---|---|---|
